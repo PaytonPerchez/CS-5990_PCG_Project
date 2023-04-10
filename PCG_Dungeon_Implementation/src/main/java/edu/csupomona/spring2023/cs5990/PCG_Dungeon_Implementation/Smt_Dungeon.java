@@ -7,8 +7,12 @@ import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Polygon;
+import javafx.scene.control.Button;
 
 import java.util.HashMap;
+//import org.sosy_lab.java_smt.SolverContextFactory;
+import com.microsoft.z3.Solver;
+import com.microsoft.z3.Context;
 
 /**
  * Java implementation of Jim Whitehead's procedural dungeon generation algorithm
@@ -57,6 +61,9 @@ public class Smt_Dungeon extends Application
 	private				boolean		runOnce				= false;	// only runs the program once if true
 	private				boolean		looper				= true;		// keeps the program running
 	
+	private				Solver		solver;
+	private				Context		ctx;
+	
 	/* TODO
 	 * Download the following classes from https://github.com/kevalmorabia97/Graph-Theory-Implementations-in-Java (don't forget about MIT license)
 	 *  - Graph.java
@@ -68,6 +75,8 @@ public class Smt_Dungeon extends Application
 	
 	public static void main(String[] args)
 	{
+		//-Djava.library.path=C:\Users\payto\MySoftware\z3-4.12.1-x64-win\bin\libz3java.dll
+//		System.setProperty("java.library.path", "C:/Users/payto/MySoftware/z3-4.12.1-x64-win/bin/libz3java.dll");
 		launch(args);
 	}
 	// TODO implement draw_rooms, draw_lines, and draw_passageways
@@ -233,7 +242,16 @@ public class Smt_Dungeon extends Application
 			
 		}// end while
 		
-		Scene scene = new Scene(new HBox());
+		Button testButton = new Button("Test");
+		testButton.setOnAction(event ->
+		{
+			System.out.println("yoyoyo");
+			ctx = new Context();
+			solver = ctx.mkSolver();
+			System.out.println(solver.check());
+		});
+		// --module-path C:\Users\payto\Downloads\javafx-sdk-11.0.2\lib --add-modules=javafx.controls
+		Scene scene = new Scene(new HBox(testButton));
 		primaryStage.setScene(scene);
 		primaryStage.setTitle("");
 		primaryStage.show();
@@ -246,7 +264,11 @@ public class Smt_Dungeon extends Application
 			// run the program if the user presses 'space'
 			case SPACE:
 //				initRooms();								// initialize dungeon rooms with their dimensions
-//				solver = Solver();
+//				System.out.println("yoyoyo");
+//				ctx = new Context();
+//				solver = ctx.mkSolver();
+//				System.out.println(solver.check());
+//				solver = Solver()
 //				initAllConstraints(solver, mousepoints);	// add all constraints to the solver
 				// commented code from original is ommited
 				runOnce = true;
