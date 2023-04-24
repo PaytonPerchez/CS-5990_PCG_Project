@@ -9,10 +9,22 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Polygon;
 import javafx.scene.control.Button;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+
+//import javax.print.attribute.standard.NumberOfInterveningJobs;
+
 //import org.sosy_lab.java_smt.SolverContextFactory;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Context;
+
+/*
+ * Z3 Resources:
+ * 
+ * https://github.com/Z3Prover/z3/blob/master/examples/java/JavaExample.java
+ * https://z3prover.github.io/api/html/classcom_1_1microsoft_1_1z3_1_1_solver.html
+ * https://ericpony.github.io/z3py-tutorial/guide-examples.htm
+ */
 
 /**
  * Java implementation of Jim Whitehead's procedural dungeon generation algorithm
@@ -23,7 +35,7 @@ import com.microsoft.z3.Context;
 public class Smt_Dungeon extends Application
 {
 	private		final	int			NUM_ROOMS			= 30;			// Default number of rooms
-	private				int			numberOfRooms		= NUM_ROOMS;	// The number of rooms (which the user can change)
+	private				int			number_of_rooms		= NUM_ROOMS;	// The number of rooms (which the user can change)
 	private		final	int			SCALE_FACTOR		= 1000;
 	private		final	int			ROOM_WIDTH_MIN		= 10;
 	private		final	int			ROOM_WIDTH_MAX		= 20;
@@ -45,10 +57,10 @@ public class Smt_Dungeon extends Application
 	private		final	int			PASSAGE_WIDTH		= 3;
 	private				boolean		quadConstraints		= false;
 	private				boolean		lineConstraints		= false;
-	private				boolean		bigRoomConstraints	= false;
+	private				boolean		big_room_constraint	= false;
 	private				boolean		showDelaunay		= false;
 	private				boolean		showSparse			= false;
-	private				int[]		rooms;
+	private 			ArrayList<HashMap<String, Integer>> rooms;
 	private				int[]		assumptions;
 //	private		static	HashMap<String, String> directions = new HashMap<>();
 //	static
@@ -56,8 +68,8 @@ public class Smt_Dungeon extends Application
 //		directions.put("vert", "above");
 //		directions.put("vert", "above");
 //	}
-	private				int			andClauseCount		= 0;
-	private				int			orClauseCount		= 0;
+	private				int			and_clause_count		= 0;
+	private				int			or_clause_count		= 0;
 	private				boolean		runOnce				= false;	// only runs the program once if true
 	private				boolean		looper				= true;		// keeps the program running
 	
@@ -79,16 +91,155 @@ public class Smt_Dungeon extends Application
 //		System.setProperty("java.library.path", "C:/Users/payto/MySoftware/z3-4.12.1-x64-win/bin/libz3java.dll");
 		launch(args);
 	}
+
+
+	public void init_rooms(){
+		// Change this to use Z3 Int() type?
+		rooms = new ArrayList<>();
+		for(int i = 0; i < number_of_rooms; i++){
+			HashMap<String, Integer> r = new HashMap<>();
+			r.put("x", i);
+			r.put("y", i);
+			if((int) ((Math.random() * 101) + 1) <= EXCEPTION_RATE){
+				r.put("width", (int) ((Math.random() * ((ROOM_WIDTH_MAX * 4) - (ROOM_WIDTH_MIN * 4) + 1)) + (ROOM_WIDTH_MIN * 4)));
+				r.put("height", (int) ((Math.random() * ((ROOM_HEIGHT_MAX * 4) - (ROOM_HEIGHT_MIN * 4) + 1)) + (ROOM_HEIGHT_MIN * 4)));
+			}
+			else{
+				r.put("width", (int) ((Math.random() * (ROOM_WIDTH_MAX - ROOM_WIDTH_MIN + 1)) + ROOM_WIDTH_MIN));
+				r.put("height", (int) ((Math.random() * (ROOM_HEIGHT_MAX - ROOM_HEIGHT_MIN + 1)) + ROOM_HEIGHT_MIN));
+			}
+			r.put("quad", 1);
+			rooms.add(r);
+		}
+	}
+
+	public void create_big_room_constraints(Solver slv){
+		/*
+		 * Make the first room 20% of the size of the playfield, and constrain its placement
+		 */
+		rooms.get(0).put("width", (int) (0.4 * CANVAS_WIDTH));
+		rooms.get(0).put("height", (int) (0.6 * CANVAS_WIDTH * SCALE_FACTOR));
+
+		slv.add(And(
+			rooms.get(0).get("x") >= 0.3 * CANVAS_WIDTH, 
+			rooms.get(0).get("x") <= 0.35 * CANVAS_WIDTH, 
+			rooms.get(0).get("y") >= 0.1 * CANVAS_HEIGHT * SCALE_FACTOR, 
+			rooms.get(0).get("y") <= 0.25 * CANVAS_HEIGHT * SCALE_FACTOR
+		));
+
+		and_clause_count = and_clause_count + 4;
+		or_clause_count = or_clause_count + 0;
+
+		// Antechamber
+		rooms.get(1).put("width", (int) (0.4 * CANVAS_WIDTH));
+		rooms.get(1).put("height", (int) (0.05 * CANVAS_WIDTH * SCALE_FACTOR));
+		rooms.get(2).put("width", 15);
+		rooms.get(2).put("width", 15 * SCALE_FACTOR);
+	}
+
+	public void create_separation_contraints(Solver slv){
+		for(int i = 0; i < number_of_rooms; i++){
+			for(int j = i + 1; j < number_of_rooms; j++){
+				if(big_room_constraint){
+					if(i == 0 && (j == 1 || j == 2)){
+						add_big_room_separation_constraint(slv, i, j);
+					}
+					else{
+						add_separation_constraint(slv, i, j);
+					}
+				}
+				else{
+					add_separation_constraint(slv, i, j);
+				}
+			}
+		}
+	}
+
+	public void create_canvas_constraints(Solver slv){
+		for(int i = 0; i < number_of_rooms; i++){
+			slv.add(rooms.get(i).get("x") >= 0, rooms.get(i).get("x") + rooms.get(i).get("width") <= CANVAS_WIDTH);
+			slv.add(rooms.get(i).get("y") >= 0, rooms.get(i).get("y") + rooms.get(i).get("height") <= CANVAS_HEIGHT * SCALE_FACTOR);
+			and_clause_count = and_clause_count + 4;
+			or_clause_count = or_clause_count + 0;
+		}
+	}
+
+	public void create_line_constraints(Solver slv){
+		for(int i = 0; i < number_of_rooms; i++){
+			slv.add(Or(
+				And(rooms.get(i).get("y") + rooms.get(i).get("x") >= 380 - LINEWIDTH,
+					rooms.get(i).get("y") + rooms.get(i).get("x") <= 380 + LINEWIDTH),
+				And(rooms.get(i).get("x") >= rooms.get(i).get("y") - LINEWIDTH,
+					rooms.get(i).get("x") <= rooms.get(i).get("y") + LINEWIDTH)
+			));
+			and_clause_count = and_clause_count + 4;
+			or_clause_count = or_clause_count + 2;
+		}
+	}
+
+	public void create_point_line_constraints(){
+
+	}
+
+	public void create_mousepoint_constraints(){
+
+	}
+
+	public void create_quad_constraints(Solver slv){
+		for(int i = 0; i < number_of_rooms; i++){
+			// upper left
+			if(rooms.get(i).get("quad") == 1){
+				slv.add(And(
+					rooms.get(i).get("x") <= ((CANVAS_WIDTH / 2) - rooms.get(i).get("width")),
+					rooms.get(i).get("y") <= (CANVAS_HEIGHT / 2) - rooms.get(i).get("height")
+				));
+			}
+			// upper right
+			if(rooms.get(i).get("quad") == 2){
+				slv.add(And(
+					rooms.get(i).get("x") > CANVAS_WIDTH / 2,
+					rooms.get(i).get("y") <= (CANVAS_HEIGHT / 2) - rooms.get(i).get("height")
+				));
+			}
+			// lower left
+			if(rooms.get(i).get("quad") == 3){
+				slv.add(And(
+					rooms.get(i).get("x") <= ((CANVAS_WIDTH / 2) - rooms.get(i).get("width")),
+					rooms.get(i).get("y") >= CANVAS_HEIGHT / 2
+				));
+			}
+			// lower right
+			if(rooms.get(i).get("quad") == 4){
+				slv.add(And(
+					rooms.get(i).get("x") > CANVAS_WIDTH / 2,
+					rooms.get(i).get("y") >= CANVAS_HEIGHT / 2
+				));
+			}
+			and_clause_count = and_clause_count + 2;
+			or_clause_count = or_clause_count + 0;
+		}
+	}
+
+	/*
+	public ArrayList<ArrayList<Long>> compute_room_centerpoints(Model m){
+		ArrayList<ArrayList<Long>> cp = new ArrayList<>();
+		
+		for(int i = 0; i < number_of_rooms; i++){
+			rooms.get(i).put("x_center", )
+		}
+	}
+	*/
+
 	// TODO implement draw_rooms, draw_lines, and draw_passageways
 	private void drawRooms(/*m, DelaunayTriangulator, minimumSpanningTree, centerPoints, mousePoints*/)
 	{
 		Rectangle rectangle;
-		for(int i = 0; i < numberOfRooms; i++)
+		for(int i = 0; i < number_of_rooms; i++)
 		{
 			rectangle = new Rectangle(/*(m[rooms[i]['x']].as_long() + BORDER), (m[rooms[i]['y']].as_long())/SCALE_FACTOR+BORDER, rooms[i]['width'], rooms[i]['height']/SCALE_FACTOR*/);
 			rectangle.setStrokeWidth(2);
 			
-			switch(rooms[i]/*['quad']*/)
+			switch(rooms.get(i)/*['quad']*/)
 			{
 			case 1:
 				// Default color of rectangle is already black
@@ -283,11 +434,11 @@ public class Smt_Dungeon extends Application
 				break;
 				
 			case EQUALS:
-				numberOfRooms += 1;
+				number_of_rooms += 1;
 				break;
 				
 			case MINUS:
-				numberOfRooms -= 1;
+				number_of_rooms -= 1;
 				break;
 				
 			case D:
