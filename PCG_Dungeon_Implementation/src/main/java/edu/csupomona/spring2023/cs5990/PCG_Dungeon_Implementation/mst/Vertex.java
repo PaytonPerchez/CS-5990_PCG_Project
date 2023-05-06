@@ -47,4 +47,24 @@ public class Vertex {
 		discoveryTime=0;
 		finishTime=0;
 	}
+	
+	/**
+	 * Provides the index of this vertex.
+	 * @return The index of this vertex.
+	 * @author Payton Perchez
+	 */
+	public int getIndex()
+	{
+		return data;
+	}
+	
+	/**
+	 * Provides the list of vertices that are adjacent to this one.
+	 * @return The list of adjacent vertices.
+	 * @author Payton Perchez
+	 */
+	public LinkedList<Vertex> getAdjacencies()
+	{
+		return adj;
+	}
 }

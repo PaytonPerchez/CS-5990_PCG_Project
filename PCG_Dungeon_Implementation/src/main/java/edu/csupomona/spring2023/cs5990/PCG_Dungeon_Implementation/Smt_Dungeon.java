@@ -6,11 +6,13 @@ import javafx.scene.Scene;
 import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
 import javafx.scene.control.Button;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 //import java.util.Random;
 
 //import javax.print.attribute.standard.NumberOfInterveningJobs;
@@ -237,23 +239,37 @@ public class Smt_Dungeon extends Application
 		}
 	}
 
-	/*
-	public ArrayList<ArrayList<Long>> compute_room_centerpoints(Model m){
-		ArrayList<ArrayList<Long>> cp = new ArrayList<>();
+	/**
+	 * Computes the centerpoints for each room in the given Model.
+	 * @param m The given Model.
+	 * @return An array of centerpoints.
+	 */
+	public float[][] compute_room_centerpoints(Model m)
+	{
+		float[][] cp = new float[rooms.size()][2];
 		
 		for(int i = 0; i < number_of_rooms; i++){
-			rooms.get(i).put("x_center", )
+			// rooms.get(i).getX() and rooms.get(i).getY() are integer constant names in the Model m
+			// add new 'center' records to each room
+			rooms.get(i).setCenterX(/*m.getConstDecls()[0] + */(rooms.get(i).getWidth() / 2f));
+			rooms.get(i).setCenterY(/*m.getConstDecls()[0] + */(rooms.get(i).getHeight() / 2f));
+			
+			cp[i] = new float[] {rooms.get(i).getCenterX(), rooms.get(i).getCenterY()};
 		}
+		
+		return cp;
 	}
-	*/
 
 	// TODO implement draw_rooms, draw_lines, and draw_passageways
-	private void drawRooms(Model m, DelaunayTriangulator tri, KruskalMST mst, double[] centerPoints, double[] mousePoints)
+	private void drawRooms(Model m, DelaunayTriangulator tri, int[][] mst, float[][] centerPoints, ArrayList<double[]> mousePoints)
 	{
 		Rectangle rectangle;
 		for(int i = 0; i < number_of_rooms; i++)
 		{
-			rectangle = new Rectangle(/*(m[rooms[i]['x']].as_long() + BORDER), (m[rooms[i]['y']].as_long())/SCALE_FACTOR+BORDER, rooms[i]['width'], rooms[i]['height']/SCALE_FACTOR*/);
+			rectangle = new Rectangle(
+				//m.getDecls()[0].getParameters()[0].equals(obj);
+				/*(m[rooms[i]['x']].as_long() + BORDER), (m[rooms[i]['y']].as_long())/SCALE_FACTOR+BORDER, rooms.get(i).getWidth(), rooms.get(i).getHeight()/SCALE_FACTOR*/
+			);
 			rectangle.setStrokeWidth(2);
 			
 			switch(rooms.get(i).getQuad())
@@ -276,7 +292,7 @@ public class Smt_Dungeon extends Application
 			
 		}// end for
 		
-		if(true/*triangulation != null*/)
+		if(tri != null)
 		{
 			Double[] points = new Double[6];
 			/* TODO = new double[DelaunayTriangulator.getTriangles().size() * 6]*/
@@ -304,12 +320,138 @@ public class Smt_Dungeon extends Application
 			}
 		}
 		
-		if(true/*minimumSpanningTree != null*/)
+		if(mst != null)
 		{
-			
+			for(int[] points : mst)
+			{
+				//Line line = new Line(centerPoints[points[0]][0], centerPoints[points[0]][1], centerPoints[points[1]][0], centerPoints[points[1]][2]);
+			}
 		}
 		
 	}// end drawRooms
+	
+	/**
+	 * Computes the distance between the two given points.
+	 * @param point1 Float array in the form [x1, y1].
+	 * @param point2 Float array in the form [x2, y2].
+	 * @return The distance between the two given points
+	 */
+	private double distance(float[] point1, float[] point2)
+	{
+		return Math.sqrt(Math.pow((point2[0] - point1[0]), 2) + Math.pow((point2[1] - point1[1]) / SCALE_FACTOR, 2));
+	}
+	
+	/**
+	 * Computes the distance between the two given points.
+	 * @param point1 Vector containing x1 and y1.
+	 * @param point2 Vector containing x2 and y2.
+	 * @return The distance between the two given points
+	 */
+	private double distance(Vector2D point1, Vector2D point2)
+	{
+		return Math.sqrt(Math.pow((point2.x - point1.x), 2) + Math.pow((point2.y - point1.y) / SCALE_FACTOR, 2));
+	}
+	
+	/**
+	 * Creates 2D array (matrix) representing the given triangulation.
+	 * @param tri The given triangulation.
+	 * @param cp The set of points in the triangulation. TODO consider removing this argument.
+	 * @param edges The set of edges in the triangulation.
+	 * @return The matrix containing distances between points (rows/columns) in the given triangulation.
+	 */
+	private double[][] create_graph_array(DelaunayTriangulator tri, float[][] cp, ArrayList<Edge> edges)
+	{
+		double[][] graph = new double[rooms.size()][rooms.size()];
+		
+		for(Triangle2D t : tri.getTriangles())
+		{
+			// Prevent duplicate edges/distances
+			if(t.a.index < t.b.index)
+			{
+//				graph[t.a.index][t.b.index] = distance(cp[t.a.index], cp[t.b.index]);
+				graph[t.a.index][t.b.index] = distance(t.a, t.b);
+				edges.add(new Edge(t.a.index, t.b.index, graph[t.a.index][t.b.index]));
+			}
+			
+			// Prevent duplicate edges/distances
+			if(t.b.index < t.c.index)
+			{
+//				graph[t.b.index][t.c.index] = distance(cp[t.b.index], cp[t.c.index]);
+				graph[t.b.index][t.c.index] = distance(t.b, t.c);
+				edges.add(new Edge(t.b.index, t.c.index, graph[t.b.index][t.c.index]));
+			}
+			
+			// Prevent duplicate edges/distances
+			if(t.c.index < t.a.index)
+			{
+//				graph[t.c.index][t.a.index] = distance(cp[t.c.index], cp[t.a.index]);
+				graph[t.c.index][t.a.index] = distance(t.c, t.a);
+				edges.add(new Edge(t.c.index, t.a.index, graph[t.c.index][t.a.index]));
+			}
+			
+		}// end for
+		
+		return graph;
+		
+	}// end create_graph_array
+	
+	/**
+	 * Converts the given points to vectors.
+	 * @param points The given points in the format [[x1, y1], ..., [xn, yn]].
+	 * @return The list of converted points.
+	 */
+	private ArrayList<Vector2D> convertPointsToVectors(float[][] points)
+	{
+		ArrayList<Vector2D> vectors = new ArrayList<>(points.length);
+		
+		for(int i = 0; i < points.length; i++)
+		{
+			vectors.add(new Vector2D(points[i][0], points[i][1], i));
+		}
+		
+		return vectors;
+	}
+	
+	/**
+	 * Parses the given list of vertices into pairs of adjacent vertices.
+	 * @param vertices The given list of vertices.
+	 * @return The pairs of adjacent vertices.
+	 */
+	private int[][] getMst(Vertex[] vertices)
+	{
+		HashMap<Integer, ArrayList<Integer>> uniqueAdjacencies = new HashMap<>();
+		int adjacencyCount = 0;		// the number of pairs
+		
+		for(Vertex currentVertex : vertices)
+		{
+			uniqueAdjacencies.put(currentVertex.getIndex(), new ArrayList<>());
+			
+			for(Vertex adjacentVertex : currentVertex.getAdjacencies())
+			{
+				// Prevent duplicate pairs (combinations)
+				if(!uniqueAdjacencies.containsKey(adjacentVertex.getIndex()))
+				{
+					uniqueAdjacencies.get(currentVertex.getIndex()).add(adjacentVertex.getIndex());
+					adjacencyCount++;
+				}
+			}
+		}
+		
+		int[][] pairs = new int[adjacencyCount][2];
+		int currentVertex = 0;
+		
+		for(Map.Entry<Integer, ArrayList<Integer>> adjacencies : uniqueAdjacencies.entrySet())
+		{
+			for(int adjacentVertex = 0; adjacentVertex < adjacencies.getValue().size(); adjacentVertex++)
+			{
+				pairs[currentVertex + adjacentVertex] = new int[] {adjacencies.getKey(), adjacencies.getValue().get(adjacentVertex)};
+			}
+			currentVertex++;
+		}
+		
+		return pairs;
+		
+	}// end getMst
 	
 	@Override
 	public void start(Stage primaryStage)
@@ -319,16 +461,17 @@ public class Smt_Dungeon extends Application
 		int loopCount = NUM_LOOPS;			// set loop count to default
 		int runCount = NUM_RUNS;			// set run count to default
 		int unsatCount = 0;
+		
 		// TODO delete after moving the following while loop out of the application thread
 		looper = false;						// keeps the program running
 		runOnce = false;					// only runs the program once if true
 		
 		// format: [[x1, y1], [x2, y2], ..., [xn, yn]]
-		ArrayList<double[]> centerPoints  = new ArrayList<>();
+		float[][] centerPoints;
 		
 //		initGridCounts();					// counts the number of grid cells within the play area
 		DelaunayTriangulator tri;
-//		mousepoints array/dictionary		// data structure containing points for control lines specified by the user
+		ArrayList<double[]> mousepoints = new ArrayList<>();	// data structure containing points for control lines specified by the user
 		HashMap<String, Long> timingInfo = new HashMap<>();
 		
 		long begin;
@@ -361,16 +504,19 @@ public class Smt_Dungeon extends Application
 				{
 					//displayRoomPlusModel(solver.model);
 					begin = System.currentTimeMillis();
-//					centerPoints = computeRoomCenterpoints(solver.getModel());
-//			TODO		tri = DelaunayTriangulator(centerPoints);	// use center points of rooms to initialize Delaunay object
-//					end = System.currentTimeMillis();
+					centerPoints = compute_room_centerpoints(solver.getModel());
+					tri = new DelaunayTriangulator(convertPointsToVectors(centerPoints));	// use center points of rooms to initialize Delaunay object
+					end = System.currentTimeMillis();
 //					timing_info['delaunay_time'] = end - begin
-//					begin = System.currentTimeMillis();
-//					ar = create_graph_array(tri, center_points)	// create matrix containing length of edges between nodes of Delaunay triangulation
-//					tcsr = minimum_spanning_tree(ar)		// get the "compressed-sparse representation of the undirected minimum spanning tree"
-//					end = System.currentTimeMillis();
+					begin = System.currentTimeMillis();
+					ArrayList<Edge> edges = new ArrayList<>();
+					double[][] ar = create_graph_array(tri, centerPoints, edges);	// create matrix containing length of edges between nodes of Delaunay triangulation
+					KruskalMST graph = new KruskalMST(rooms.size());
+					graph.Kruskal(edges.toArray(new Edge[edges.size()]));
+					int[][] tcsr = getMst(graph.getVertices());		// get the "compressed-sparse representation of the undirected minimum spanning tree"
+					end = System.currentTimeMillis();
 //					timing_info['mst_time'] = end - begin
-//					draw_rooms(solver.model(), surface, tri, tcsr, centerPoints, mousepoints)
+					drawRooms(solver.getModel(), tri, tcsr, centerPoints, mousepoints);
 //					update_grid(solver.model());
 //					loopCount -= 1;
 //					updateTiming();

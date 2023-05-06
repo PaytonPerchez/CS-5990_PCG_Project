@@ -36,14 +36,47 @@ class Checker implements Comparator<int[]>{
 	}
 }
 
+/*
+ * Modified original comparator to support custom Edge class.
+ * @author Payton Perchez
+ */
+class Checker2 implements Comparator<Edge>{
+	public int compare(Edge e1, Edge e2) {
+		return Double.compare(e1.getWeight(), e2.getWeight());
+	}
+}
+
 public class KruskalMST extends Graph{
-	int cost;
+	double cost; // changed from int to double by Payton Perchez
 	boolean cycle;
 
 	public KruskalMST(int v) {
 		super(v);
 		cost = 0;
 		cycle = false;
+	}
+	
+	/*
+	 * Changed the visibility of the original method to public. Takes edges input as an array of Edges
+	 * instead of a matrix of integers. Ensured edges were sorted by calling Arrays.sort. Modified
+	 * for loop to support iterating through Edges.
+	 * @author Payton Perchez
+	 */
+	public void Kruskal(Edge[] edges){
+		Arrays.sort(edges,new Checker2());
+		for(Edge edge : edges){
+			int a = edge.getVertex1(), b = edge.getVertex2();
+			double w = edge.getWeight();
+			if(a==b)	continue;//loop
+			addEdge(a, b);
+			if(!isCycle()){
+				cost+=w;
+			}else{
+				vertex[a].adj.removeLast();
+				vertex[b].adj.removeLast();
+			}
+		}
+		System.out.println("Cost: "+cost);
 	}
 	
 	void Kruskal(int[][] edges){

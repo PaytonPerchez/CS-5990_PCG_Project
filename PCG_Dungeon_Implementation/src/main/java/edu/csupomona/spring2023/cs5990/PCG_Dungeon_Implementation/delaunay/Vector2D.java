@@ -35,6 +35,26 @@ public class Vector2D {
 
     public double x;
     public double y;
+    
+    /**
+     * Represents the index of these coordinates in an external list of points.
+     * @author Payton Perchez
+     */
+    public int index;
+    
+    /**
+     * Custom constructor of the 2D vector class.
+     * @param x The x coordinate of the new vector.
+     * @param y The y coordinate of the new vector.
+     * @param index The index of these coordinates.
+     * @author Payton Perchez
+     */
+    public Vector2D(double x, double y, int index)
+    {
+    	this.x = x;
+    	this.y = y;
+    	this.index = index;
+    }
 
     /**
      * Constructor of the 2D vector class used to create new vector instances.

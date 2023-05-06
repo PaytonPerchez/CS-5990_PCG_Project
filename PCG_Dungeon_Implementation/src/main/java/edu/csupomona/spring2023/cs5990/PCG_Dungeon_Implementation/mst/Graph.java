@@ -60,7 +60,17 @@ public class Graph {//undirected graph
 		}
 	}
 	
-	public static void main(String[] args) {
+	/**
+	 * Provides the vertices of the minimum spanning tree.
+	 * @return The vertices of the minimum spanning tree.
+	 * @author Payton Perchez
+	 */
+	public Vertex[] getVertices()
+	{
+		return vertex;
+	}
+	
+	static void main(String[] args) {
 		Graph g = new Graph(5);
 		g.addEdge(0, 1);
 		g.addEdge(1, 2);

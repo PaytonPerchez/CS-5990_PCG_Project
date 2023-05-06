@@ -11,6 +11,8 @@ public class Room {
 
 	private IntExpr x;	// x-coordinate
 	private IntExpr y;	// y-coordinate
+	private float center_x;
+	private float center_y;
 	private int width;
 	private int height;
 	private int quad;	// quadrant (1-4)
@@ -41,6 +43,16 @@ public class Room {
 		return y;
 	}
 	
+	public float getCenterX()
+	{
+		return center_x;
+	}
+	
+	public float getCenterY()
+	{
+		return center_y;
+	}
+	
 	public int getWidth()
 	{
 		return width;
@@ -64,6 +76,16 @@ public class Room {
 	public void setY(IntExpr newY)
 	{
 		y = newY;
+	}
+	
+	public void setCenterX(float newCenterX)
+	{
+		center_x = newCenterX;
+	}
+	
+	public void setCenterY(float newCenterY)
+	{
+		center_y = newCenterY;
 	}
 	
 	public void setWidth(int newWidth)
