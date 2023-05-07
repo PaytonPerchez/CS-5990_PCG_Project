@@ -251,8 +251,8 @@ public class Smt_Dungeon extends Application
 		for(int i = 0; i < number_of_rooms; i++){
 			// rooms.get(i).getX() and rooms.get(i).getY() are integer constant names in the Model m
 			// add new 'center' records to each room
-			rooms.get(i).setCenterX(/*m.getConstDecls()[0] + */(rooms.get(i).getWidth() / 2f));
-			rooms.get(i).setCenterY(/*m.getConstDecls()[0] + */(rooms.get(i).getHeight() / 2f));
+			rooms.get(i).setCenterX(Integer.parseInt(m.getConstInterp(rooms.get(i).getX()).toString()) + (rooms.get(i).getWidth() / 2f));
+			rooms.get(i).setCenterY(Integer.parseInt(m.getConstInterp(rooms.get(i).getY()).toString()) + (rooms.get(i).getHeight() / 2f));
 			
 			cp[i] = new float[] {rooms.get(i).getCenterX(), rooms.get(i).getCenterY()};
 		}
@@ -574,6 +574,14 @@ public class Smt_Dungeon extends Application
 		primaryStage.setScene(scene);
 		primaryStage.setTitle("");
 		primaryStage.show();
+		
+		primaryStage.setOnCloseRequest(e ->
+		{
+			if(ctx != null)
+			{
+				ctx.close();
+			}
+		});
 		
 		scene.setOnKeyTyped(event ->
 		{
