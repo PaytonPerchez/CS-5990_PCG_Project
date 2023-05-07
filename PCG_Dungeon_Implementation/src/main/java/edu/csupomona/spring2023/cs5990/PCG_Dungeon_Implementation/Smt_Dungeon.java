@@ -267,8 +267,10 @@ public class Smt_Dungeon extends Application
 		for(int i = 0; i < number_of_rooms; i++)
 		{
 			rectangle = new Rectangle(
-				//m.getDecls()[0].getParameters()[0].equals(obj);
-				/*(m[rooms[i]['x']].as_long() + BORDER), (m[rooms[i]['y']].as_long())/SCALE_FACTOR+BORDER, rooms.get(i).getWidth(), rooms.get(i).getHeight()/SCALE_FACTOR*/
+				(Integer.parseInt(m.getConstInterp(rooms.get(i).getX()).toString()) + BORDER),
+				((Integer.parseInt(m.getConstInterp(rooms.get(i).getY()).toString()) / SCALE_FACTOR) + BORDER),
+				rooms.get(i).getWidth(),
+				(rooms.get(i).getHeight() / SCALE_FACTOR)
 			);
 			rectangle.setStrokeWidth(2);
 			
@@ -294,38 +296,57 @@ public class Smt_Dungeon extends Application
 		
 		if(tri != null)
 		{
-			Double[] points = new Double[6];
-			/* TODO = new double[DelaunayTriangulator.getTriangles().size() * 6]*/
-			/* TODO int i = 0;*/	// base index for adding triangle coordinates to points
-			// Draw Delaunay triangulation
-			for(;;/*Triangle2D triangle : DelaunayTriangulator.getTriangles()*/)
+			if(showDelaunay)
 			{
-				//System.out.println("t is " + triangle);
-//				points[/*i + */0]pointList(triangle.a.x + BORDER);
-//				points[/*i + */1]points((triangle.a.y / SCALE_FACTOR) + BORDER);
-//				points[/*i + */2]points(triangle.b.x + BORDER);
-//				points[/*i + */3]points((triangle.b.y / SCALE_FACTOR) + BORDER);
-//				points[/*i + */4]points(triangle.c.x + BORDER);
-//				points[*/i + */5]points((triangle.c.y / SCALE_FACTOR) + BORDER);
-				/* TODO i += 5;*/
-				if(showDelaunay)
+				// Draw Delaunay triangulation
+				for(Triangle2D triangle : tri.getTriangles())
 				{
+					//System.out.println("t is " + triangle);
 					Polygon lines = new Polygon();
-					lines.getPoints().addAll(points);
+					// TODO convert points to int??
+					lines.getPoints().addAll(
+						(triangle.a.x + BORDER), (triangle.a.y / SCALE_FACTOR) + BORDER,
+						(triangle.b.x + BORDER), (triangle.b.y / SCALE_FACTOR) + BORDER,
+						(triangle.c.x + BORDER), (triangle.c.y / SCALE_FACTOR) + BORDER
+					);
 					lines.setFill(null);
 					lines.setStroke(Color.DARKBLUE);
 //					SOMENODE.getChildren().add(lines);
 				}
-				break;// TODO remove after implementation of for loop is complete
 			}
-		}
+			
+		}// end if
 		
 		if(mst != null)
 		{
-			for(int[] points : mst)
+			if(showSparse)
 			{
-				//Line line = new Line(centerPoints[points[0]][0], centerPoints[points[0]][1], centerPoints[points[1]][0], centerPoints[points[1]][2]);
+				Polygon lines = new Polygon();
+				lines.setFill(null);
+				lines.setStroke(Color.LIMEGREEN);
+				// TODO convert points to int??
+				for(int[] points : mst)
+				{
+					lines.getPoints().addAll(
+						(double) centerPoints[points[0]][0] + BORDER,
+						(double) (centerPoints[points[0]][1] / SCALE_FACTOR) + BORDER,
+						(double) centerPoints[points[1]][0] + BORDER,
+						(double) (centerPoints[points[1]][2] / SCALE_FACTOR) + BORDER
+					);
+				}
+//				SOMENODE.getChildren().add(lines);
 			}
+		}
+		
+		if(!mousePoints.isEmpty())
+		{
+			Polygon lines = new Polygon();
+			lines.setFill(null);
+			for(double[] points : mousePoints)
+			{
+				lines.getPoints().addAll(points[0], points[1]);
+			}
+//			SOMENODE.getChildren().add(lines);
 		}
 		
 	}// end drawRooms
