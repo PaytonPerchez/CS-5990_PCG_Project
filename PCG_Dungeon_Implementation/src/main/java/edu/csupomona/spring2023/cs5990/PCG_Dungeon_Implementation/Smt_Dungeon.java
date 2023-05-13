@@ -100,6 +100,7 @@ public class Smt_Dungeon extends Application
 	
 	private				int			loopCount;
 	private				int			runCount;
+
 	
 	public static void main(String[] args)
 	{
@@ -294,7 +295,13 @@ public class Smt_Dungeon extends Application
 	 * @param lines The given control lines.
 	 */
 	private void createPointLineConstraints(Solver slv, HashMap<String, Double> lines){
-		// TODO implement
+		String constraint = "";
+		for(int i = 0; i < numberOfRooms; i++){
+			if(bigRoomConstraint && (i == 0 || i == 1 || i ==2)){
+				continue;
+			}
+			constraint = "Or(";
+		}
 	}
 
 	/**
@@ -302,8 +309,43 @@ public class Smt_Dungeon extends Application
 	 * @param slv The given Solver.
 	 * @param mousepoints The list of mousepoints.
 	 */
-	private void createMousepointConstraints(Solver slv, ArrayList<Double> mousepoints){
-		// TODO implement
+	private void createMousepointConstraints(Solver slv, ArrayList<ArrayList<Integer>> mousepoints){
+		ArrayList<HashMap<String, Integer>> lines = new ArrayList<HashMap<String, Integer>>();
+		HashMap<String, Integer> l_info = new HashMap<String, Integer>();
+		ArrayList<Integer> prev = null;
+		int x1, y1, x2, y2, m_num, m_den;
+		for(ArrayList<Integer> p: mousepoints){
+			if(prev == null){
+				prev = p;
+				continue;
+			}
+			x1 = (prev.get(0) - BORDER);
+			y1 = (prev.get(1) - BORDER) * SCALE_FACTOR;
+			x2 = (p.get(0) - BORDER);
+			y2 = (p.get(1) - BORDER) * SCALE_FACTOR;
+			m_num = (y2 - y1);
+			if((x2 - x1) == 0){
+				m_den = 1;
+			}
+			else{
+				m_den = (x2 - x1);
+			}
+			l_info.put("m_num", m_num);
+			l_info.put("m_den", m_den);
+			l_info.put("m", m_num/m_den);
+			l_info.put("y1", y1);
+			l_info.put("y2", y2);
+			l_info.put("x1", x1);
+			l_info.put("x2", x2);
+			System.out.print("slope: " + Integer.toString(m_num/m_den));
+			System.out.print("  slope_num: " + Integer.toString(m_num));
+			System.out.print("  slope_den: " + Integer.toString(m_den));
+			System.out.print("  x2: " + Integer.toString(x2));
+			System.out.println("  y2: " + Integer.toString(y2));
+			lines.add(l_info);
+			prev = p;
+		}
+		createPointLineConstraints(slv, lines);
 	}
 
 	/**
