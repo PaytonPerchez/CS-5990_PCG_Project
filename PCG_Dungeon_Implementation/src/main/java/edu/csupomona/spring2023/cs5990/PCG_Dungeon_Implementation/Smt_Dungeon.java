@@ -2,6 +2,7 @@ package edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation;
 
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.scene.Scene;
 import javafx.scene.Group;
@@ -12,6 +13,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Polyline;
+import javafx.scene.shape.Line;
 import javafx.scene.control.Label;
 import javafx.scene.control.Button;
 import javafx.scene.control.Spinner;
@@ -20,6 +22,7 @@ import javafx.concurrent.Task;
 import javafx.geometry.Pos;
 import javafx.scene.input.MouseButton;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -156,8 +159,7 @@ public class Smt_Dungeon extends Application
 		// Throne room
 		rooms.get(0).setWidth((int) (0.4 * CANVAS_WIDTH));
 		rooms.get(0).setHeight((int) (0.6 * CANVAS_WIDTH * SCALE_FACTOR));
-
-		// TODO I don't know if this warning matters
+		
 		slv.add(ctx.mkAnd(
 			ctx.mkGe(rooms.get(0).getX(), ctx.mkReal(3 * CANVAS_WIDTH, 10)),
 			ctx.mkLe(rooms.get(0).getX(), ctx.mkReal(35 * CANVAS_WIDTH, 100)),
@@ -465,25 +467,21 @@ public class Smt_Dungeon extends Application
 			// Draw Delaunay triangulation
 			if(showDelaunay)
 			{
-				Polyline lines = new Polyline();
-				lines.setStroke(Color.rgb(0, 45, 225));	// dark blue
+				Polyline lines;
 				
 				for(Triangle2D triangle : tri.getTriangles())
 				{
 					// vertical scaling is done when centerpoints are computed
-					lines.getPoints().addAll(
+					lines = new Polyline(
 						(triangle.a.x + BORDER), (triangle.a.y/* / SCALE_FACTOR*/) + BORDER,
 						(triangle.b.x + BORDER), (triangle.b.y/* / SCALE_FACTOR*/) + BORDER,
-						(triangle.c.x + BORDER), (triangle.c.y/* / SCALE_FACTOR*/) + BORDER
+						(triangle.c.x + BORDER), (triangle.c.y/* / SCALE_FACTOR*/) + BORDER,
+						(triangle.a.x + BORDER), (triangle.a.y/* / SCALE_FACTOR*/) + BORDER
 					);
+					lines.setStroke(Color.rgb(0, 45, 225));	// dark blue
+					
+					surf.getChildren().add(lines);
 				}
-				
-				lines.getPoints().addAll(
-					lines.getPoints().get(0),
-					lines.getPoints().get(1)
-				);
-				
-				surf.getChildren().add(lines);
 			}
 			
 		}// end if
@@ -492,25 +490,21 @@ public class Smt_Dungeon extends Application
 		{
 			if(showSparse)
 			{
-				Polyline lines = new Polyline();
-				lines.setStroke(Color.rgb(0, 225, 0));	// lime green
+				Line line;
 				
 				// vertical scaling is done when centerpoints are computed
 				for(int[] points : mst)
 				{
-					lines.getPoints().addAll(
+					line = new Line(
 						(double) centerPoints[points[0]][0] + BORDER,
 						(double) (centerPoints[points[0]][1]/* / SCALE_FACTOR*/) + BORDER,
 						(double) centerPoints[points[1]][0] + BORDER,
 						(double) (centerPoints[points[1]][1]/* / SCALE_FACTOR*/) + BORDER
 					);
+					line.setStroke(Color.rgb(0, 225, 0));	// lime green
+					
+					surf.getChildren().add(line);
 				}
-				lines.getPoints().addAll(
-					lines.getPoints().get(0),
-					lines.getPoints().get(1)
-				);
-				
-				surf.getChildren().add(lines);
 			}
 		}
 		
@@ -562,9 +556,9 @@ public class Smt_Dungeon extends Application
 		double[][] graph = new double[number_of_rooms][number_of_rooms];
 		
 		for(Triangle2D t : tri.getTriangles())
-		{// TODO run program to see if duplicate filtering is ok
+		{
 			// Prevent duplicate edges/distances
-			if(t.a.index < t.b.index)
+			if(true)//.a.index < t.b.index)
 			{
 //				graph[t.a.index][t.b.index] = distance(cp[t.a.index], cp[t.b.index]);
 				graph[t.a.index][t.b.index] = distance(t.a, t.b);
@@ -572,7 +566,7 @@ public class Smt_Dungeon extends Application
 			}
 			
 			// Prevent duplicate edges/distances
-			if(t.b.index < t.c.index)
+			if(true)//.b.index < t.c.index)
 			{
 //				graph[t.b.index][t.c.index] = distance(cp[t.b.index], cp[t.c.index]);
 				graph[t.b.index][t.c.index] = distance(t.b, t.c);
@@ -580,7 +574,7 @@ public class Smt_Dungeon extends Application
 			}
 			
 			// Prevent duplicate edges/distances
-			if(t.c.index < t.a.index)
+			if(true)//.c.index < t.a.index)
 			{
 //				graph[t.c.index][t.a.index] = distance(cp[t.c.index], cp[t.a.index]);
 				graph[t.c.index][t.a.index] = distance(t.c, t.a);
@@ -1026,6 +1020,9 @@ public class Smt_Dungeon extends Application
 		loadMousepoints.setOnAction(e ->
 		{
 //			mousepoints = load_mousepoint_data();
+			FileChooser fileChooser = new FileChooser();
+			//fileChooser.setInitialDirectory(new File(PATH));
+			File selectedFile = fileChooser.showOpenDialog(new Stage());
 		});
 		VBox mousepointControls = new VBox(
 			new Label("Mousepoints"),
@@ -1063,7 +1060,7 @@ public class Smt_Dungeon extends Application
 			System.out.println((solver.check() == Status.SATISFIABLE));
 		});
 		//pane.getChildren().add(testButton);
-		Scene scene = new Scene(borderPane, CANVAS_WIDTH + 2*BORDER, CANVAS_HEIGHT + 2*BORDER);
+		Scene scene = new Scene(borderPane, CANVAS_WIDTH + 2*BORDER, CANVAS_HEIGHT + 2*BORDER + 118/*height of uiControls*/);
 		primaryStage.setScene(scene);
 		primaryStage.setTitle("Dungeon Generator");
 		primaryStage.show();
