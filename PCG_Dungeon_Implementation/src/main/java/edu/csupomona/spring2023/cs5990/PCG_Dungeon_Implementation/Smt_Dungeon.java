@@ -4,6 +4,7 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import javafx.scene.Scene;
+import javafx.scene.Group;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.BorderPane;
@@ -28,10 +29,11 @@ import java.util.stream.IntStream;
 //import javax.print.attribute.standard.NumberOfInterveningJobs;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Context;
+import com.microsoft.z3.IntExpr;
 import com.microsoft.z3.Model;
 import com.microsoft.z3.Status;
 import com.microsoft.z3.BoolExpr;
-import com.microsoft.z3.Status;
+import com.microsoft.z3.Z3Exception;
 
 // The only methods that use the below libraries are draw_rooms, create_graph_array, draw_passageways
 import edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation.delaunay.*;
@@ -66,11 +68,10 @@ public class Smt_Dungeon extends Application
 	private		final	int			SEPARATION_Y		= SEPARATION * SCALE_FACTOR;
 	private		final	int			BORDER				= 5;
 	private		final	int			LINEWIDTH			= 30;
-	private		final	int			LINEWIDTH_Y			= LINEWIDTH * SCALE_FACTOR;
 	private		final	int			EXCEPTION_RATE		= 0;
 	private		final	int			GRID_CELL			= 5;
 	private		final	int			GRID_CELL_Y			= GRID_CELL * SCALE_FACTOR;
-	private				int[]		gridCounts;
+	private				int[][]		gridCounts;
 	private		final	int			NUM_LOOPS			= 5;			// number of layouts to solve per run
 	private		final	int			NUM_RUNS			= 25;			// number of times to create new constraints
 	private		final	int			PASSAGE_WIDTH		= 3;
@@ -80,7 +81,6 @@ public class Smt_Dungeon extends Application
 	private				boolean		showDelaunay		= false;
 	private				boolean		showSparse			= false;
 	private 			ArrayList<Room> rooms;
-	private				int[]		assumptions;
 //	private		static	HashMap<String, String> directions = new HashMap<>();
 //	static
 //	{
@@ -103,7 +103,9 @@ public class Smt_Dungeon extends Application
 		launch(args);
 	}
 
-
+	/**
+	 * Initializes the dimensions of all rooms.
+	 */
 	public void init_rooms(){
 		
 		rooms = new ArrayList<>();
@@ -123,32 +125,47 @@ public class Smt_Dungeon extends Application
 			rooms.add(r);
 		}
 	}
+	
+	/**
+	 * Computes the centerpoints for each room in the given Model.
+	 * @param m The given Model.
+	 * @return An array of centerpoints.
+	 */
+	public float[][] compute_room_centerpoints(Model m)
+	{
+		float[][] cp = new float[number_of_rooms][2];
+		
+		for(int i = 0; i < number_of_rooms; i++){
+			// rooms.get(i).getX() and rooms.get(i).getY() are integer constant names in the Model m
+			// store center coordinates to each room
+			rooms.get(i).setCenterX(valueOf(m, rooms.get(i).getX()) + (rooms.get(i).getWidth() / 2f));
+			rooms.get(i).setCenterY((valueOf(m, rooms.get(i).getY()) + (rooms.get(i).getHeight() / 2f)) / (float) SCALE_FACTOR);
+			cp[i] = new float[] {rooms.get(i).getCenterX(), rooms.get(i).getCenterY()};
+		}
+		
+		return cp; // TODO may not need (use rooms.get(i).getCenterX/Y instead?
+	}
 
+	/**
+	 * Make the first room 20% of the size of the playfield, and constrain its placement.
+	 * @param slv The given Solver.
+	 */
 	@SuppressWarnings("unchecked")
 	public void create_big_room_constraints(Solver slv){
-		/*
-		 * Make the first room 20% of the size of the playfield, and constrain its placement
-		 */
+		
+		// Throne room
 		rooms.get(0).setWidth((int) (0.4 * CANVAS_WIDTH));
 		rooms.get(0).setHeight((int) (0.6 * CANVAS_WIDTH * SCALE_FACTOR));
 
-		// I don't know if this warning matters
+		// TODO I don't know if this warning matters
 		slv.add(ctx.mkAnd(
-			//rooms.get(0).get("x") >= 0.3 * CANVAS_WIDTH,
 			ctx.mkGe(rooms.get(0).getX(), ctx.mkReal(3 * CANVAS_WIDTH, 10)),
-			
-			//rooms.get(0).get("x") <= 0.35 * CANVAS_WIDTH,
 			ctx.mkLe(rooms.get(0).getX(), ctx.mkReal(35 * CANVAS_WIDTH, 100)),
-			
-			//rooms.get(0).get("y") >= 0.1 * CANVAS_HEIGHT * SCALE_FACTOR,
-			ctx.mkGe(rooms.get(0).getY(), ctx.mkReal(CANVAS_WIDTH, 10)),
-			
-			//rooms.get(0).get("y") <= 0.25 * CANVAS_HEIGHT * SCALE_FACTOR
-			ctx.mkLe(rooms.get(0).getY(), ctx.mkReal(CANVAS_WIDTH, 4))
+			ctx.mkGe(rooms.get(0).getY(), ctx.mkReal(CANVAS_HEIGHT * SCALE_FACTOR, 10)),
+			ctx.mkLe(rooms.get(0).getY(), ctx.mkReal(CANVAS_HEIGHT * SCALE_FACTOR, 4))
 		));
 
-		and_clause_count = and_clause_count + 4;
-		or_clause_count = or_clause_count + 0;
+		and_clause_count += 4;
 
 		// Antechamber
 		rooms.get(1).setWidth((int) (0.4 * CANVAS_WIDTH));
@@ -157,24 +174,80 @@ public class Smt_Dungeon extends Application
 		rooms.get(2).setWidth(15 * SCALE_FACTOR);
 	}
 
+	/**
+	 * Add constraints to the given Solver that determine the separation between rooms.
+	 * @param slv The given Solver.
+	 */
 	public void create_separation_contraints(Solver slv){
 		for(int i = 0; i < number_of_rooms; i++){
 			for(int j = i + 1; j < number_of_rooms; j++){
 				if(big_room_constraint){
 					if(i == 0 && (j == 1 || j == 2)){
-						// TODO add_big_room_separation_constraint(slv, i, j);
+						add_big_room_separation_constraint(slv, i, j);
 					}
 					else{
-						// TODO add_separation_constraint(slv, i, j);
+						add_separation_constraint(slv, i, j);
 					}
 				}
 				else{
-					// TODO add_separation_constraint(slv, i, j);
+					add_separation_constraint(slv, i, j);
 				}
 			}
 		}
 	}
+	
+	/**
+	 * Add constraints to the given Solver for antechamber and escape room dimensions and placement.
+	 * @param slv The given Solver.
+	 * @param i The index of the throne room.
+	 * @param j The index of the antechamber or exit room.
+	 */
+	@SuppressWarnings("unchecked")
+	private void add_big_room_separation_constraint(Solver slv, int i, int j)
+	{
+		// Have antechamber touching throne room bottom
+		if(j == 1)
+		{
+			slv.add(ctx.mkAnd(
+				ctx.mkEq(rooms.get(i).getY(), ctx.mkSub(rooms.get(j).getY(), ctx.mkInt(rooms.get(i).getHeight()))),
+				ctx.mkEq(rooms.get(i).getX(), rooms.get(j).getX())
+			));
+			and_clause_count += 2;
+		}
+		// Have escape room touching top right of throne room
+		if(j == 2)
+		{	
+			slv.add(ctx.mkAnd(
+				ctx.mkEq(rooms.get(i).getX(), ctx.mkSub(rooms.get(j).getX(), ctx.mkInt(rooms.get(i).getWidth()))),
+				ctx.mkEq(rooms.get(i).getY(), ctx.mkSub(rooms.get(j).getY(), ctx.mkReal(rooms.get(i).getHeight(), 10)))
+			));
+			and_clause_count += 2;
+		}
+	}
+	
+	/**
+	 * Adds constraints to the given Solver to ensure rooms are separated by a certain number of units.
+	 * @param slv The given Solver.
+	 * @param i The index of the first room.
+	 * @param j The index of the second room.
+	 */
+	@SuppressWarnings("unchecked")
+	private void add_separation_constraint(Solver slv, int i, int j)
+	{
+		slv.add(ctx.mkOr(
+			ctx.mkLe(rooms.get(j).getY(), ctx.mkSub(rooms.get(i).getY(), ctx.mkInt(rooms.get(j).getHeight() + SEPARATION_Y))),
+			ctx.mkLe(rooms.get(i).getY(), ctx.mkSub(rooms.get(j).getY(), ctx.mkInt(rooms.get(i).getHeight() + SEPARATION_Y))),
+			ctx.mkLe(rooms.get(j).getX(), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(rooms.get(j).getWidth() + SEPARATION))),
+			ctx.mkLe(rooms.get(i).getX(), ctx.mkSub(rooms.get(j).getX(), ctx.mkInt(rooms.get(i).getWidth() + SEPARATION)))
+		));
+		and_clause_count++;
+		or_clause_count += 4;
+	}
 
+	/**
+	 * Adds constraints to the given Solver to ensure rooms are placed within the playfield.
+	 * @param slv The given Solver.
+	 */
 	@SuppressWarnings("unchecked")
 	public void create_canvas_constraints(Solver slv){
 		for(int i = 0; i < number_of_rooms; i++){
@@ -186,35 +259,55 @@ public class Smt_Dungeon extends Application
 				ctx.mkGe(rooms.get(i).getY(), ctx.mkInt(0)),
 				ctx.mkLe(ctx.mkAdd(rooms.get(i).getY(), ctx.mkInt(rooms.get(i).getHeight())), ctx.mkInt(CANVAS_HEIGHT * SCALE_FACTOR))
 			);
-			and_clause_count = and_clause_count + 4;
-			or_clause_count = or_clause_count + 0;
+			and_clause_count += 4;
 		}
 	}
 
+	/**
+	 * Adds constraints to the given Solver to restrict room placement within the bounds of linear functions.
+	 * @param slv The given Solver.
+	 */
 	@SuppressWarnings("unchecked")
 	public void create_line_constraints(Solver slv){
 		for(int i = 0; i < number_of_rooms; i++){
+			// X shape
 			slv.add(ctx.mkOr(
 				ctx.mkAnd(
 					ctx.mkGe(ctx.mkAdd(rooms.get(i).getY(), rooms.get(i).getX()), ctx.mkInt(380 - LINEWIDTH)),
-					ctx.mkLe(ctx.mkAdd(rooms.get(i).getY(), rooms.get(i).getX()), ctx.mkInt(380 + LINEWIDTH))),
+					ctx.mkLe(ctx.mkAdd(rooms.get(i).getY(), rooms.get(i).getX()), ctx.mkInt(380 + LINEWIDTH))
+				),
 				ctx.mkAnd(
 					ctx.mkGe(rooms.get(i).getX(), ctx.mkSub(rooms.get(i).getY(), ctx.mkInt(LINEWIDTH))),
-					ctx.mkLe(rooms.get(i).getX(), ctx.mkAdd(rooms.get(i).getY(), ctx.mkInt(LINEWIDTH))))
+					ctx.mkLe(rooms.get(i).getX(), ctx.mkAdd(rooms.get(i).getY(), ctx.mkInt(LINEWIDTH)))
+				)
 			));
-			and_clause_count = and_clause_count + 4;
-			or_clause_count = or_clause_count + 2;
+			and_clause_count += 4;
+			or_clause_count += 2;
 		}
 	}
 
-	public void create_point_line_constraints(){
-
+	/**
+	 * Adds constraints to the given Solver to guide room placement along the given control lines.
+	 * @param slv The given Solver.
+	 * @param lines The given control lines.
+	 */
+	public void create_point_line_constraints(Solver slv, HashMap<String, Double> lines){
+		// TODO implement
 	}
 
-	public void create_mousepoint_constraints(){
-
+	/**
+	 * Add a series of linear constraints following lines created by mousepoints.
+	 * @param slv The given Solver.
+	 * @param mousepoints The list of mousepoints.
+	 */
+	public void create_mousepoint_constraints(Solver slv, ArrayList<Double> mousepoints){
+		// TODO implement
 	}
 
+	/**
+	 * Adds constraints to the given Solver to restrict room placement to specific quadrants of the playfield.
+	 * @param slv The given Solver.
+	 */
 	@SuppressWarnings("unchecked")
 	public void create_quad_constraints(Solver slv){
 		for(int i = 0; i < number_of_rooms; i++){
@@ -246,32 +339,76 @@ public class Smt_Dungeon extends Application
 					ctx.mkGe(rooms.get(i).getY(), ctx.mkInt(CANVAS_HEIGHT / 2))
 				));
 			}
-			and_clause_count = and_clause_count + 2;
-			or_clause_count = or_clause_count + 0;
+			and_clause_count += 2;
 		}
+	}
+	
+	/**
+	 * Initializes all constraints and adds them to the given Solver.
+	 * @param slv The given Solver.
+	 * @param mousepoints Coordinates for the points of control lines.
+	 */
+	private void init_all_constraints(Solver slv, ArrayList<Double> mousepoints)
+	{
+		and_clause_count = 0;
+		or_clause_count = 0;
+//		begin = System.currentTimeMillis();
+//		all_begin = begin;
+		create_canvas_constraints(slv);
+//		end = System.currentTimeMillis();
+//		timingInfo.put("create_canvas_constraints", end - begin);
+		
+		if(big_room_constraint)
+		{
+//			begin = System.currentTimeMillis();
+			create_big_room_constraints(slv);
+//			end = System.currentTimeMillis();
+//			timingInfo.put("create_big_room_constraints", end - begin);
+		}
+//		begin = System.currentTimeMillis();
+		create_separation_contraints(slv);
+//		end = System.currentTimeMillis();
+//		timingInfo.put("create_separation_constraints", end - begin);
+		
+		if(lineConstraints)
+		{
+//			begin = System.currentTimeMillis();
+			create_line_constraints(slv);
+//			end = System.currentTimeMillis();
+//			timingInfo.put("create_line_constraints", end - begin);
+		}
+		
+		if(quadConstraints)
+		{
+//			begin = System.currentTimeMillis();
+			create_quad_constraints(slv);
+//			end = System.currentTimeMillis();
+//			timingInfo.put("create_quad_constraints", end - begin);
+		}
+		
+		if(mousepoints.size() >= 2)
+		{
+//			begin = System.currentTimeMillis();
+			create_mousepoint_constraints(slv, mousepoints);
+//			end = System.currentTimeMillis();
+//			timingInfo.put("create_control_line_constraints", end - begin);
+		}
+		
+//		all_end = System.currentTimeMillis();
+//		timingInfo.put("create_all_constraints", all_end - all_begin);
+		System.out.println("======");
+		System.out.println("And clause count: " + and_clause_count);
+		System.out.println("Or clause count: " + or_clause_count);
 	}
 
 	/**
-	 * Computes the centerpoints for each room in the given Model.
-	 * @param m The given Model.
-	 * @return An array of centerpoints.
+	 * Displays the information of all rooms.
 	 */
-	public float[][] compute_room_centerpoints(Model m)
+	private void display_room_info()
 	{
-		float[][] cp = new float[rooms.size()][2];
-		
-		for(int i = 0; i < number_of_rooms; i++){
-			// rooms.get(i).getX() and rooms.get(i).getY() are integer constant names in the Model m
-			// store center coordinates to each room
-			rooms.get(i).setCenterX(Integer.parseInt(m.getConstInterp(rooms.get(i).getX()).toString()) + (rooms.get(i).getWidth() / 2f));
-			rooms.get(i).setCenterY(Integer.parseInt(m.getConstInterp(rooms.get(i).getY()).toString()) + (rooms.get(i).getHeight() / 2f));
-			
-			cp[i] = new float[] {rooms.get(i).getCenterX(), rooms.get(i).getCenterY()};
-		}
-		
-		return cp;
+		// TODO implement
 	}
-
+	
 	/**
 	 * Generates rooms based on the interpreted room constraints in the given model. Also displays
 	 * Delaunay triangulation and minimum spanning tree if desired.
@@ -282,57 +419,62 @@ public class Smt_Dungeon extends Application
 	 * @param centerPoints Array of room centerpoints.
 	 * @param mousePoints Array of point coordinates of control lines.
 	 */
-	private void drawRooms(Model m, Pane surf, DelaunayTriangulator tri, int[][] mst, float[][] centerPoints, ArrayList<Double> mousePoints)
+	private void drawRooms(Model m, Group surf, DelaunayTriangulator tri, int[][] mst, float[][] centerPoints, ArrayList<Double> mousePoints)
 	{
 		Rectangle rectangle;
 		for(int i = 0; i < number_of_rooms; i++)
 		{
 			rectangle = new Rectangle(
-				(Integer.parseInt(m.getConstInterp(rooms.get(i).getX()).toString()) + BORDER),
-				((Integer.parseInt(m.getConstInterp(rooms.get(i).getY()).toString()) / SCALE_FACTOR) + BORDER),
+				(valueOf(m, rooms.get(i).getX()) + BORDER),
+				((valueOf(m, rooms.get(i).getY()) / SCALE_FACTOR) + BORDER),
 				rooms.get(i).getWidth(),
 				(rooms.get(i).getHeight() / SCALE_FACTOR)
 			);
+			rectangle.setFill(null);
 			rectangle.setStrokeWidth(2);
 			
 			switch(rooms.get(i).getQuad())
 			{
 			case 1:
-				// Default color of rectangle is already black
+				rectangle.setStroke(Color.BLACK);
 				break;
 			case 2:
-				rectangle.setFill(Color.rgb(255, 133, 27));	// orange
+				rectangle.setStroke(Color.rgb(255, 133, 27));	// orange
 				break;
 			case 3:
-				rectangle.setFill(Color.rgb(0, 116, 217));	// blue
+				rectangle.setStroke(Color.rgb(0, 116, 217));	// blue
 				break;
 			case 4:
-				rectangle.setFill(Color.rgb(46, 204, 64));	// green
+				rectangle.setStroke(Color.rgb(46, 204, 64));	// green
 				break;
 			default:
 				break;
 			}// end switch
 			
 			surf.getChildren().add(rectangle);
+			// TODO remove in final product
+			Label label = new Label(i + "");
+			label.setLayoutX(rooms.get(i).getCenterX());
+			label.setLayoutY(valueOf(m, rooms.get(i).getY()) / SCALE_FACTOR);
+			surf.getChildren().add(label);
 			
 		}// end for
 		
 		if(!tri.getTriangles().isEmpty())
 		{
+			// Draw Delaunay triangulation
 			if(showDelaunay)
 			{
 				Polyline lines = new Polyline();
 				lines.setStroke(Color.rgb(0, 45, 225));	// dark blue
 				
-				// Draw Delaunay triangulation
 				for(Triangle2D triangle : tri.getTriangles())
 				{
-					//System.out.println("t is " + triangle);
-					// TODO convert points to int??
+					// vertical scaling is done when centerpoints are computed
 					lines.getPoints().addAll(
-						(triangle.a.x + BORDER), (triangle.a.y / SCALE_FACTOR) + BORDER,
-						(triangle.b.x + BORDER), (triangle.b.y / SCALE_FACTOR) + BORDER,
-						(triangle.c.x + BORDER), (triangle.c.y / SCALE_FACTOR) + BORDER
+						(triangle.a.x + BORDER), (triangle.a.y/* / SCALE_FACTOR*/) + BORDER,
+						(triangle.b.x + BORDER), (triangle.b.y/* / SCALE_FACTOR*/) + BORDER,
+						(triangle.c.x + BORDER), (triangle.c.y/* / SCALE_FACTOR*/) + BORDER
 					);
 				}
 				
@@ -352,14 +494,15 @@ public class Smt_Dungeon extends Application
 			{
 				Polyline lines = new Polyline();
 				lines.setStroke(Color.rgb(0, 225, 0));	// lime green
-				// TODO convert points to int??
+				
+				// vertical scaling is done when centerpoints are computed
 				for(int[] points : mst)
 				{
 					lines.getPoints().addAll(
 						(double) centerPoints[points[0]][0] + BORDER,
-						(double) (centerPoints[points[0]][1] / SCALE_FACTOR) + BORDER,
+						(double) (centerPoints[points[0]][1]/* / SCALE_FACTOR*/) + BORDER,
 						(double) centerPoints[points[1]][0] + BORDER,
-						(double) (centerPoints[points[1]][2] / SCALE_FACTOR) + BORDER
+						(double) (centerPoints[points[1]][1]/* / SCALE_FACTOR*/) + BORDER
 					);
 				}
 				lines.getPoints().addAll(
@@ -377,12 +520,6 @@ public class Smt_Dungeon extends Application
 			Polyline lines = new Polyline();
 			lines.setStroke(Color.rgb(139, 0, 0));	// dark red
 			lines.getPoints().addAll(mousePoints);
-			/*
-			for(double[] points : mousePoints)
-			{
-				lines.getPoints().addAll(points[0], points[1]);
-			}
-			*/
 			surf.getChildren().add(lines);
 		}
 		
@@ -391,177 +528,15 @@ public class Smt_Dungeon extends Application
 	}// end drawRooms
 	
 	/**
-	 * Draws passageways between rooms of the given model based on the minimum spanning tree of their layout.
-	 * @param m The given model.
-	 * @param surf The Node in which the passageways will be displayed.
-	 * @param mst Minimum spanning tree for room layout.
-	 */
-	private void drawPassageways(Model m, Pane surf, int[][] mst)
-	{
-		Random random = new Random();
-		int top;
-		int bottom;
-		int left;
-		int right;
-		int[] overlap;
-		int passX;
-		int passY;
-		
-		for(int[] points : mst)
-		{
-			// Determine which room is above the other room
-			if(Integer.parseInt(m.getConstInterp(rooms.get(points[0]).getY()).toString()) < Integer.parseInt(m.getConstInterp(rooms.get(points[1]).getY()).toString()))
-			{
-				top = points[0];
-				bottom = points[1];
-				
-			} else {
-				
-				top = points[1];
-				bottom = points[0];
-			}
-			
-			// Determine which room is to right of other room
-			if(Integer.parseInt(m.getConstInterp(rooms.get(points[0]).getX()).toString()) < Integer.parseInt(m.getConstInterp(rooms.get(points[1]).getX()).toString()))
-			{
-				left = points[0];
-				right = points[1];
-				
-			} else {
-				
-				right = points[0];
-				left = points[1];
-			}
-			
-			int[] top_x_range = new int[] {Integer.parseInt(m.getConstInterp(rooms.get(top).getX()).toString()) + PASSAGE_WIDTH, Integer.parseInt(m.getConstInterp(rooms.get(top).getX()).toString()) + rooms.get(top).getWidth() - PASSAGE_WIDTH};
-			int[] top_y_range = new int[] {Integer.parseInt(m.getConstInterp(rooms.get(top).getY()).toString()) + PASSAGE_WIDTH, Integer.parseInt(m.getConstInterp(rooms.get(top).getY()).toString()) + rooms.get(top).getHeight() - PASSAGE_WIDTH};
-			int[] bottom_x_range = new int[] {Integer.parseInt(m.getConstInterp(rooms.get(bottom).getX()).toString()) + PASSAGE_WIDTH, Integer.parseInt(m.getConstInterp(rooms.get(bottom).getX()).toString()) + rooms.get(bottom).getWidth() - PASSAGE_WIDTH};
-			int[] bottom_y_range = new int[] {Integer.parseInt(m.getConstInterp(rooms.get(bottom).getY()).toString()) + PASSAGE_WIDTH, Integer.parseInt(m.getConstInterp(rooms.get(bottom).getY()).toString()) + rooms.get(bottom).getHeight() - PASSAGE_WIDTH};
-			
-			Polyline lines = new Polyline();
-			lines.setStrokeWidth(PASSAGE_WIDTH);
-			
-			if(rangeOverlapping(top_x_range, bottom_x_range))
-			{
-				if(rangeOverlapping(top_y_range, bottom_y_range))
-				{
-					System.out.println("Rooms overlapping??");
-					
-				} else {
-					
-					// x overlap, no y overlap. Drop passage down from top room to bottom room
-					overlap = overlap(top_x_range, bottom_x_range);
-					passX = overlap[random.nextInt(overlap.length)];
-					lines.getPoints().addAll(
-						(double) passX + BORDER, (double) (((Integer.parseInt(m.getConstInterp(rooms.get(top).getY()).toString()) + rooms.get(top).getHeight()) / SCALE_FACTOR) + BORDER),
-						(double) passX + BORDER, (double) ((Integer.parseInt(m.getConstInterp(rooms.get(bottom).getY()).toString()) / SCALE_FACTOR) + BORDER)
-					);
-					
-					surf.getChildren().add(lines);
-				}
-				
-			} else {
-				
-				if(rangeOverlapping(top_y_range, bottom_y_range))
-				{
-					// y overlap, no x overlap, draw line straight across
-					overlap = overlap(top_y_range, bottom_y_range);
-					passY = overlap[random.nextInt(overlap.length)];
-					lines.getPoints().addAll(
-						(double) (Integer.parseInt(m.getConstInterp(rooms.get(left).getX()).toString()) + rooms.get(left).getWidth() + BORDER), (double) ((passY / SCALE_FACTOR) + BORDER),
-						(double) (Integer.parseInt(m.getConstInterp(rooms.get(right).getX()).toString()) + BORDER), (double) ((passY / SCALE_FACTOR) + BORDER)
-					);
-					
-					surf.getChildren().add(lines);
-					
-				} else {
-					
-					// no x overlap, no y overlap, draw right-angle connector
-					passX = random.nextInt(bottom_x_range[1] - bottom_x_range[0]) + bottom_x_range[0];
-					passY = random.nextInt(top_y_range[1] - top_y_range[0]) + top_y_range[0];
-					if(top == left)
-					{
-						lines.getPoints().addAll(
-							(double) (Integer.parseInt(m.getConstInterp(rooms.get(top).getX()).toString()) + rooms.get(top).getWidth() + BORDER), (double) ((passY / SCALE_FACTOR) + BORDER)
-						);
-						
-					} else {
-						
-						lines.getPoints().addAll(
-							(double) (Integer.parseInt(m.getConstInterp(rooms.get(top).getX()).toString()) + BORDER),
-							(double) ((passY / SCALE_FACTOR) + BORDER)
-						);
-					}
-					
-					lines.getPoints().addAll(
-						(double) (passX + BORDER + (PASSAGE_WIDTH / 2)), (double) ((passY / SCALE_FACTOR) + BORDER)
-					);
-					
-					surf.getChildren().add(lines);
-					lines = new Polyline();
-					lines.setStrokeWidth(PASSAGE_WIDTH);
-					
-					lines.getPoints().addAll(
-						(double) (passX + BORDER), (double) ((passY / SCALE_FACTOR) + BORDER),
-						(double) (passX + BORDER), (double) (Integer.parseInt(m.getConstInterp(rooms.get(bottom).getY()).toString()) / SCALE_FACTOR)
-					);
-					surf.getChildren().add(lines);
-					
-				}// end if
-				
-			}// end if
-			
-		}// end for
-		
-	}// end drawPassageways
-	
-	/**
-	 * Determines whether the two given ranges of integers overlap.
-	 * @param range1 The first range.
-	 * @param range2 The second range.
-	 * @return True if the ranges overlap, false otherwise.
-	 */
-	private boolean rangeOverlapping(int[] range1, int[] range2)
-	{
-		if((range1[0] == range1[1]) || (range2[0] == range2[1]))
-		{
-			return false;
-			
-		} else {
-			
-			return (((range1[0] < range2[1]) && (range1[1] > range2[0])) ||
-					((range1[1] > range2[0]) && (range2[1] > range1[0])));
-		}
-	}
-	
-	/**
-	 * Provides the set of integers that the two given ranges share.
-	 * @param range1 The first range.
-	 * @param range2 The second range.
-	 * @return The set of integers that the two given ranges share.
-	 */
-	private int[] overlap(int[] range1, int[] range2)
-	{
-		if(!rangeOverlapping(range1, range2))
-		{
-			return new int[] {};
-			
-		} else {
-			
-			return IntStream.rangeClosed(Math.max(range1[0], range2[0]), Math.min(range1[1], range2[1]) + 1).toArray();
-		}
-	}
-	
-	/**
 	 * Computes the distance between the two given points.
 	 * @param point1 Float array in the form [x1, y1].
 	 * @param point2 Float array in the form [x2, y2].
 	 * @return The distance between the two given points
 	 */
 	private double distance(float[] point1, float[] point2)
-	{
+	{// TODO may not need this method
 		return Math.sqrt(Math.pow((point2[0] - point1[0]), 2) + Math.pow((point2[1] - point1[1]) / SCALE_FACTOR, 2));
-	}// TODO may not need this method
+	}
 	
 	/**
 	 * Computes the distance between the two given points.
@@ -571,7 +546,8 @@ public class Smt_Dungeon extends Application
 	 */
 	private double distance(Vector2D point1, Vector2D point2)
 	{
-		return Math.sqrt(Math.pow((point2.x - point1.x), 2) + Math.pow((point2.y - point1.y) / SCALE_FACTOR, 2));
+		// vertical scaling is done when centerpoints are computed
+		return Math.sqrt(Math.pow((point2.x - point1.x), 2) + Math.pow((point2.y - point1.y)/* / SCALE_FACTOR*/, 2));
 	}
 	
 	/**
@@ -579,14 +555,14 @@ public class Smt_Dungeon extends Application
 	 * @param tri The given triangulation.
 	 * @param cp The set of points in the triangulation. TODO consider removing this argument.
 	 * @param edges The set of edges in the triangulation.
-	 * @return The matrix containing distances between points (rows/columns) in the given triangulation.
+	 * @return The matrix containing distances between points (rows/columns) in the given triangulation. TODO may only need to return edges
 	 */
 	private double[][] create_graph_array(DelaunayTriangulator tri, float[][] cp, ArrayList<Edge> edges)
 	{
-		double[][] graph = new double[rooms.size()][rooms.size()];
+		double[][] graph = new double[number_of_rooms][number_of_rooms];
 		
 		for(Triangle2D t : tri.getTriangles())
-		{
+		{// TODO run program to see if duplicate filtering is ok
 			// Prevent duplicate edges/distances
 			if(t.a.index < t.b.index)
 			{
@@ -613,9 +589,269 @@ public class Smt_Dungeon extends Application
 			
 		}// end for
 		
+		// TODO remove after program works
+//		for(float[] a : cp)
+//		{
+//			for(float f : a)
+//			{
+//				System.out.print(" " + f);
+//			}
+//			System.out.println();
+//		}
+		for(double[] a : graph)
+		{
+			for(double d : a)
+			{
+				System.out.print(" " + d);
+			}
+			System.out.println();
+		}
+		
 		return graph;
 		
 	}// end create_graph_array
+	
+	/**
+	 * Provides the set of integers that the two given ranges share.
+	 * @param range1 The first range.
+	 * @param range2 The second range.
+	 * @return The set of integers that the two given ranges share.
+	 */
+	private int[] overlap(int[] range1, int[] range2)
+	{
+		if(!rangeOverlapping(range1, range2))
+		{
+			return new int[] {};
+			
+		} else {
+			
+			return IntStream.rangeClosed(Math.max(range1[0], range2[0]), Math.min(range1[1], range2[1])).toArray();
+		}
+	}
+	
+	/**
+	 * Determines whether the two given ranges of integers overlap.
+	 * @param range1 The first range.
+	 * @param range2 The second range.
+	 * @return True if the ranges overlap, false otherwise.
+	 */
+	private boolean rangeOverlapping(int[] range1, int[] range2)
+	{
+		if((range1[0] == range1[1]) || (range2[0] == range2[1]))
+		{
+			return false;
+			
+		} else {
+			
+			return (((range1[0] < range2[1]) && (range1[1] > range2[0])) ||
+					((range1[1] > range2[0]) && (range2[1] > range1[0])));
+		}
+	}
+	
+	/**
+	 * Draws passageways between rooms of the given model based on the minimum spanning tree of their layout.
+	 * @param m The given model.
+	 * @param surf The Node in which the passageways will be displayed.
+	 * @param mst Minimum spanning tree for room layout.
+	 */
+	private void drawPassageways(Model m, Group surf, int[][] mst)
+	{
+		Random random = new Random();
+		int top;
+		int bottom;
+		int left;
+		int right;
+		int[] overlap;
+		int passX;
+		int passY;
+		
+		for(int[] points : mst)
+		{// TODO check if mst is formatted properly
+			// Determine which room is above the other room
+			if(valueOf(m, rooms.get(points[0]).getY()) < valueOf(m, rooms.get(points[1]).getY()))
+			{
+				top = points[0];
+				bottom = points[1];
+				
+			} else {
+				
+				top = points[1];
+				bottom = points[0];
+			}
+			
+			// Determine which room is to right of other room
+			if(valueOf(m, rooms.get(points[0]).getX()) < valueOf(m, rooms.get(points[1]).getX()))
+			{
+				left = points[0];
+				right = points[1];
+				
+			} else {
+				
+				right = points[0];
+				left = points[1];
+			}
+			
+			int[] top_x_range = new int[] {valueOf(m, rooms.get(top).getX()) + PASSAGE_WIDTH, valueOf(m, rooms.get(top).getX()) + rooms.get(top).getWidth() - PASSAGE_WIDTH};
+			int[] top_y_range = new int[] {valueOf(m, rooms.get(top).getY()) + PASSAGE_WIDTH, valueOf(m, rooms.get(top).getY()) + rooms.get(top).getHeight() - PASSAGE_WIDTH};
+			int[] bottom_x_range = new int[] {valueOf(m, rooms.get(bottom).getX()) + PASSAGE_WIDTH, valueOf(m, rooms.get(bottom).getX()) + rooms.get(bottom).getWidth() - PASSAGE_WIDTH};
+			int[] bottom_y_range = new int[] {valueOf(m, rooms.get(bottom).getY()) + PASSAGE_WIDTH, valueOf(m, rooms.get(bottom).getY()) + rooms.get(bottom).getHeight() - PASSAGE_WIDTH};
+			
+			Polyline lines = new Polyline();
+			lines.setStrokeWidth(PASSAGE_WIDTH);
+			lines.setStroke(Color.ORANGE); // TODO remove after full implementation
+			
+			if(rangeOverlapping(top_x_range, bottom_x_range))
+			{
+				if(rangeOverlapping(top_y_range, bottom_y_range))
+				{
+					System.out.println("Rooms overlapping??");
+					
+				} else {
+					
+					// x overlap, no y overlap. Drop passage down from top room to bottom room
+					overlap = overlap(top_x_range, bottom_x_range);
+					passX = overlap[random.nextInt(overlap.length)];
+					
+					lines.getPoints().addAll(
+						(double) passX + BORDER, (((valueOf(m, rooms.get(top).getY()) + rooms.get(top).getHeight()) / (double) SCALE_FACTOR) + BORDER),
+						(double) passX + BORDER, ((valueOf(m, rooms.get(bottom).getY()) / (double) SCALE_FACTOR) + BORDER)
+					);
+					
+					surf.getChildren().add(lines);
+				}
+				
+			} else {
+				
+				if(rangeOverlapping(top_y_range, bottom_y_range))
+				{
+					// y overlap, no x overlap, draw line straight across
+					overlap = overlap(top_y_range, bottom_y_range);
+					passY = overlap[random.nextInt(overlap.length)];
+					lines.getPoints().addAll(
+						(double) (valueOf(m, rooms.get(left).getX()) + rooms.get(left).getWidth() + BORDER), ((passY / (double) SCALE_FACTOR) + BORDER),
+						(double) (valueOf(m, rooms.get(right).getX()) + BORDER), ((passY / (double) SCALE_FACTOR) + BORDER)
+					);
+					
+					surf.getChildren().add(lines);
+					
+				} else {
+					
+					// no x overlap, no y overlap, draw right-angle connector
+					passX = random.nextInt(bottom_x_range[1] - bottom_x_range[0]) + bottom_x_range[0];
+					passY = random.nextInt(top_y_range[1] - top_y_range[0]) + top_y_range[0];
+					if(top == left)
+					{
+						lines.getPoints().addAll(
+							(double) (valueOf(m, rooms.get(top).getX()) + rooms.get(top).getWidth() + BORDER), ((passY / (double) SCALE_FACTOR) + BORDER)
+						);
+						
+					} else {
+						
+						lines.getPoints().addAll(
+							(double) (valueOf(m, rooms.get(top).getX()) + BORDER),
+							((passY / (double) SCALE_FACTOR) + BORDER)
+						);
+					}
+					
+					lines.getPoints().addAll(
+						(passX + BORDER + ((double) PASSAGE_WIDTH / 2)), ((passY / (double) SCALE_FACTOR) + BORDER)
+					);
+					
+					surf.getChildren().add(lines);
+					
+					lines = new Polyline();
+					lines.setStrokeWidth(PASSAGE_WIDTH);
+					lines.setStroke(Color.ORANGE); // TODO remove after full implementation
+					lines.getPoints().addAll(
+						(double) (passX + BORDER), ((passY / (double) SCALE_FACTOR) + BORDER),
+						(double) (passX + BORDER), ((valueOf(m, rooms.get(bottom).getY()) / (double) SCALE_FACTOR) + BORDER)
+					);
+					
+					surf.getChildren().add(lines);
+					
+				}// end if
+				
+			}// end if
+			
+		}// end for
+		
+	}// end drawPassageways
+	
+	/**
+	 * Initialize the grid used for computing rectangle placement density.
+	 */
+	private void initGridCounts()
+	{
+		gridCounts = new int[CANVAS_HEIGHT / GRID_CELL][CANVAS_WIDTH / GRID_CELL];
+	}
+	
+	/**
+	 * Update the grid counts based on the current set of rooms.
+	 * @param m The Model containing the current set of rooms.
+	 */
+	private void updateGrid(Model m)
+	{
+		for(int i = 0; i < number_of_rooms; i++)
+		{
+			updateGridCounts(m, rooms.get(i));
+		}
+	}
+	
+	/**
+	 * Update grid counts based on which cells the passed room overlaps.
+	 * @param m The given Model.
+	 * @param r The given Room.
+	 */
+	private void updateGridCounts(Model m, Room r)
+	{
+		int rX = valueOf(m, r.getX());
+		int rY = valueOf(m, r.getY());
+		
+		int startGridX = rX / GRID_CELL;
+		int endGridX = (rX + r.getWidth()) / GRID_CELL;
+		
+		int startGridY = rY / GRID_CELL_Y;
+		int endGridY = (rY + r.getHeight()) / GRID_CELL_Y;
+		
+		for(int i = startGridY; i < endGridY; i++)
+		{
+			for(int j = startGridX; j < endGridX; j++)
+			{
+				gridCounts[i][j] += 1;
+			}
+		}
+	}
+	
+	private void make_heatmap()
+	{
+		// TODO implement
+	}
+	
+	private void update_timing()
+	{
+		// TODO implement
+	}
+	
+	private void do_histogram(/**/)
+	{
+		// TODO implement
+	}
+	
+	private void final_data_analysis()
+	{
+		// TODO implement
+		do_histogram(/**/);
+	}
+	
+	private void save_mousepoint_data(ArrayList<Double> mp)
+	{
+		// TODO implement
+	}
+	
+	private /*ArrayList<Double>*/void load_mousepoint_data()
+	{
+		// TODO implement
+	}
 	
 	/**
 	 * Converts the given points to vectors.
@@ -657,57 +893,102 @@ public class Smt_Dungeon extends Application
 					adjacencyCount++;
 				}
 			}
+			
+			// Remove the vertex if it does not have any unique adjacencies
+			if(uniqueAdjacencies.get(currentVertex.getIndex()).size() < 1)
+			{
+				uniqueAdjacencies.remove(currentVertex.getIndex());
+			}
 		}
 		
-		int[][] pairs = new int[adjacencyCount][2];
-		int currentVertex = 0;
+		ArrayList<int[]> pairList = new ArrayList<>(adjacencyCount);
+		int[][] pairArray = new int[adjacencyCount][2];
 		
+		// Group all adjacencies into pairs
 		for(Map.Entry<Integer, ArrayList<Integer>> adjacencies : uniqueAdjacencies.entrySet())
 		{
 			for(int adjacentVertex = 0; adjacentVertex < adjacencies.getValue().size(); adjacentVertex++)
 			{
-				pairs[currentVertex + adjacentVertex] = new int[] {adjacencies.getKey(), adjacencies.getValue().get(adjacentVertex)};
+				pairList.add(new int[] {adjacencies.getKey(), adjacencies.getValue().get(adjacentVertex)});
 			}
-			currentVertex++;
 		}
 		
-		return pairs;
+		pairList.toArray(pairArray);
+		
+		// TODO remove after program works
+		for(Vertex v1 : vertices)
+		{
+			System.out.print(v1.getIndex() + ": ");
+			for(Vertex v2 : v1.getAdjacencies())
+			{
+				System.out.print(v2.getIndex() + ", ");
+			}
+			System.out.println();
+		}
+		for(int[] a : pairArray)
+		{
+			for(int i : a)
+			{
+				System.out.print(" " + i);
+			}
+			System.out.println();
+		}
+		
+		return pairArray;
 		
 	}// end getMst
+	
+	/**
+	 * Converts the interpretation of the given integer expression into an Integer object.
+	 * @param m The model for which the given integer expression has an interpretation.
+	 * @param e The given integer expression.
+	 * @return The interpretation of the given integer expression as an Integer object.
+	 */
+	private Integer valueOf(Model m, IntExpr e)
+	{
+		return Integer.parseInt(m.getConstInterp(e).toString());
+	}
 	
 	@Override
 	public void start(Stage primaryStage)
 	{
+		// TODO may not need this data structure (could use Polyline object instead?)
+		ArrayList<Double> mousepoints = new ArrayList<>();	// data structure containing points for control lines specified by the user
+		
+		Polyline controlLines = new Polyline();
+		Pane pane = new Pane(controlLines); // displays the dungeon layout and contains control lines
+		
 		// control for specifying the number of rooms in the dungeon
-		Spinner<Integer> roomSpinner = new Spinner<>(5, 30, NUM_ROOMS);
+		Spinner<Integer> roomSpinner = new Spinner<>(3/*5*/, 30, 3/*NUM_ROOMS*/);
 		roomSpinner.setEditable(true);
 		roomSpinner.setMaxWidth(60);
 		
 		// control for specifying the number times to run the solver
-		Spinner<Integer> runSpinner = new Spinner<>(1, 25, NUM_RUNS);
+		Spinner<Integer> runSpinner = new Spinner<>(1, 25, 1/*NUM_RUNS*/);
 		runSpinner.setEditable(true);
 		runSpinner.setMaxWidth(60);
 		
 		// control for specifying the number iterations to perform during each run
-		Spinner<Integer> iterationSpinner = new Spinner<>(1, 100, NUM_LOOPS);
+		Spinner<Integer> iterationSpinner = new Spinner<>(1, 100, 1/*NUM_LOOPS*/);
 		iterationSpinner.setEditable(true);
 		iterationSpinner.setMaxWidth(60);
 		
 		Button start = new Button("Start"); // starts the solver
 		Button stop = new Button("Stop"); // stops the solver
+		stop.setDisable(true);
 		
 		HBox upperControls = new HBox
 		(
 			new VBox(new Label("Number of rooms"), roomSpinner),
 			new VBox(new Label("Number of runs"), runSpinner),
-			new VBox(new Label("Number of iterations"), iterationSpinner),
+			new VBox(new Label("Iterations per run"), iterationSpinner),
 			new VBox(start, stop)
 		);
 		upperControls.setAlignment(Pos.CENTER);
 		upperControls.setSpacing(10);
 		
+		// Constraint controls
 		RadioButton toggleLineConstraints = new RadioButton("Lines");
-		//toggleLineConstraints.fire();
 		toggleLineConstraints.setOnAction(e ->
 		{
 			lineConstraints = !lineConstraints;
@@ -722,6 +1003,8 @@ public class Smt_Dungeon extends Application
 		{
 			big_room_constraint = !big_room_constraint;
 		});
+		
+		// Layout controls
 		RadioButton toggleDelaunay = new RadioButton("Delaunay");
 		toggleDelaunay.setOnAction(e ->
 		{
@@ -733,34 +1016,40 @@ public class Smt_Dungeon extends Application
 			showSparse = !showSparse;
 		});
 		
+		// Mousepoint controls
 		Button saveMousepoints = new Button("Save");
 		saveMousepoints.setOnAction(e ->
 		{
-//			saveMousepointData(mousepoints);
+			save_mousepoint_data(mousepoints);
 		});
 		Button loadMousepoints = new Button("Load");
 		loadMousepoints.setOnAction(e ->
 		{
-//			mousepoints = loadMousepointData();
+//			mousepoints = load_mousepoint_data();
 		});
 		VBox mousepointControls = new VBox(
 			new Label("Mousepoints"),
 			new HBox(saveMousepoints, loadMousepoints)
 		);
 		
+		Button clearPane = new Button("Clear");
+		clearPane.setOnAction(e ->
+		{
+			mousepoints.clear();
+			controlLines.getPoints().clear();
+			pane.getChildren().retainAll(controlLines);
+		});
+		
 		HBox lowerControls = new HBox(
 			new VBox(new Label("Constraints"), toggleLineConstraints, toggleQuadConstraints, toggleBigRoomConstraint),
 			new VBox(new Label("Display"), toggleDelaunay, toggleSparse),
-			mousepointControls
+			mousepointControls,
+			clearPane
 		);
 		lowerControls.setSpacing(5);
 		lowerControls.setAlignment(Pos.CENTER);
 		
 		VBox uiControls = new VBox(upperControls, lowerControls);
-		
-		Polyline controlLines = new Polyline();
-		
-		Pane pane = new Pane(controlLines); // displays the dungeon layout and contains control lines
 		
 		BorderPane borderPane = new BorderPane();
 		borderPane.setTop(uiControls);
@@ -769,7 +1058,6 @@ public class Smt_Dungeon extends Application
 		Button testButton = new Button("Test");
 		testButton.setOnAction(event ->
 		{
-			System.out.println("yoyoyo");
 			ctx = new Context();
 			solver = ctx.mkSolver();
 			System.out.println((solver.check() == Status.SATISFIABLE));
@@ -786,16 +1074,14 @@ public class Smt_Dungeon extends Application
 			runCount = 0;
 			if(solver != null)
 			{
-				solver.interrupt();
+				try
+				{
+					solver.interrupt();
+					
+				} catch(Z3Exception z) {}
 			}
-			if(ctx != null)
-			{
-				ctx.close();
-			}
+			ctx.close();
 		});
-		
-		// TODO may not need this data structure
-		ArrayList<Double> mousepoints = new ArrayList<>();	// data structure containing points for control lines specified by the user
 		
 		// if the mouse is being used to create points, use the points for control lines
 		pane.setOnMouseClicked(event ->
@@ -811,128 +1097,57 @@ public class Smt_Dungeon extends Application
 		});
 		
 		System.out.println("Dungeon layout using SMT");
-//		initGridCounts(); // counts the number of grid cells within the play area
-		
-		Task<String> solveTask = new Task<>() {
-			
-			@Override
-			protected String call() throws Exception
-			{
-				// main starts here
-				runCount = runSpinner.getValue(); // set run count to default
-				int unsatCount = 0; // number of times the solver could not find a solution
-				
-				// format: [[x1, y1], [x2, y2], ..., [xn, yn]]
-				// TODO may not need this data structure
-				float[][] centerPoints;
-				DelaunayTriangulator tri;
-				HashMap<String, Long> timingInfo = new HashMap<>();
-				
-				long begin;
-				long end;
-//				int i;
-				solver = ctx.mkSolver();
-				
-				while(runCount > 0)
-				{
-					init_rooms();
-//					displayRoomInfo(); // TODO not used for first run in original implementation
-					solver.reset();
-//					init_all_constraints(solver, mousepoints);
-					loopCount = iterationSpinner.getValue(); // set loop count to default
-					
-					while(loopCount > 0)
-					{
-//						Thread.sleep(1);
-						begin = System.currentTimeMillis();
-						Status s = solver.check();
-						end = System.currentTimeMillis();
-						System.out.println(s);
-						System.out.println("Solve time: " + (end - begin) + " ms");
-						// Traversing statistics
-						BoolExpr[] asrts = solver.getAssertions();
-						System.out.println("@@@ Assertions @@@");
-//						i = 0;
-//						for(BoolExpr asrt : asrts)
-//						{
-//							i = i + 1;
-//							// System.out.println("Assertion: " + asrt);
-//						}
-						System.out.println("Total assertions: " + asrts.length);
-						timingInfo.put("solveTime", end - begin);
-						// if the solver found a satisfiable layout, display it to the user
-						if(s == Status.SATISFIABLE)
-						{
-							begin = System.currentTimeMillis();
-							centerPoints = compute_room_centerpoints(solver.getModel());
-							tri = new DelaunayTriangulator(convertPointsToVectors(centerPoints));	// use center points of rooms to initialize Delaunay object
-							end = System.currentTimeMillis();
-							timingInfo.put("delaunayTime", end - begin);
-							begin = System.currentTimeMillis();
-							ArrayList<Edge> edges = new ArrayList<>();
-							
-							// TODO may not need this data structure
-							double[][] ar = create_graph_array(tri, centerPoints, edges);	// create matrix containing length of edges between nodes of Delaunay triangulation
-							KruskalMST graph = new KruskalMST(rooms.size());
-							graph.Kruskal(edges.toArray(new Edge[edges.size()]));
-							int[][] tcsr = getMst(graph.getVertices());		// get the "compressed-sparse representation of the undirected minimum spanning tree"
-							end = System.currentTimeMillis();
-							timingInfo.put("mstTime", end - begin);
-							drawRooms(solver.getModel(), pane, tri, tcsr, centerPoints, mousepoints);
-//							update_grid(solver.model());
-							loopCount--;
-//							updateTiming();
-//							
-						} else {
-//							
-							System.out.println("Cannot find room placement!");
-//							displayRoomInfo();
-							init_rooms();
-							loopCount = NUM_LOOPS;
-							unsatCount++;	// TODO this number is never reset
-							if(unsatCount > 10)
-							{
-								primaryStage.close();
-							}
-//							
-						}// end if
-						
-					}// end while
-					
-					runCount--;
-					//saveAccumulatedTiming();
-					System.out.println("#######\nRun: " + runCount + "\n#######");
-					
-				}// end while
-				
-//				makeHeatmap();
-//				finalDataAnalysis();
-				
-				controlLines.getPoints().clear();
-				pane.getChildren().retainAll(controlLines);
-				
-				return "Done!";
-				
-			}// end call
-		};
+		initGridCounts(); // counts the number of grid cells within the play area
+		ctx = new Context();
 		
 		start.setOnAction(e ->
 		{
-			solverThread = new Thread(solveTask);
+			// disable all controls and enable stop button
+			roomSpinner.setDisable(true);
+			runSpinner.setDisable(true);
+			iterationSpinner.setDisable(true);
+			toggleLineConstraints.setDisable(true);
+			toggleQuadConstraints.setDisable(true);
+			toggleBigRoomConstraint.setDisable(true);
+			loadMousepoints.setDisable(true);
+			saveMousepoints.setDisable(true);
+			clearPane.setDisable(true);
+			
+			solverThread = new Thread(generateTask
+			(
+				runSpinner, roomSpinner, iterationSpinner,
+				pane, controlLines, stop, mousepoints
+			));
 			solverThread.start();
 			
-			// TODO disable all controls and enable stop button
+			stop.setDisable(false);
+			start.setDisable(true);
 		});
 		
 		stop.setOnAction(e ->
 		{
 			loopCount = 0;
 			runCount = 0;
-			if(solver != null)
+			
+			try
 			{
 				solver.interrupt();
-			}
-			// TODO enable all controls and disable stop button
+				
+			} catch(Z3Exception z) {}
+			
+			// enable all controls and disable stop button
+			roomSpinner.setDisable(false);
+			runSpinner.setDisable(false);
+			iterationSpinner.setDisable(false);
+			toggleLineConstraints.setDisable(false);
+			toggleQuadConstraints.setDisable(false);
+			toggleBigRoomConstraint.setDisable(false);
+			loadMousepoints.setDisable(false);
+			saveMousepoints.setDisable(false);
+			clearPane.setDisable(false);
+			
+			start.setDisable(false);
+			stop.setDisable(true);
 		});
 		
 		/*
@@ -992,5 +1207,150 @@ public class Smt_Dungeon extends Application
 		*/
 		
 	}// end start
+	
+	private Task<Void> generateTask
+	(
+		Spinner<Integer> runSpinner, Spinner<Integer> roomSpinner, Spinner<Integer> iterationSpinner,
+		Pane pane, Polyline controlLines, Button stop, ArrayList<Double> mousepoints
+	){
+		return new Task<Void>() {
+			
+			@Override
+			protected Void call() throws Exception
+			{
+				// main starts here
+				runCount = runSpinner.getValue();
+				number_of_rooms = roomSpinner.getValue();
+				int unsatCount = 0; // number of times the solver could not find a solution
+				
+				// format: [[x1, y1], [x2, y2], ..., [xn, yn]]
+				// TODO may not need this data structure
+				float[][] centerPoints;
+				DelaunayTriangulator tri;
+				HashMap<String, Long> timingInfo = new HashMap<>();
+				
+				long begin;
+				long end;
+				Status s;
+				ArrayList<Edge> edges;
+				KruskalMST graph;
+				int[][] tcsr;
+//				int i;
+				solver = ctx.mkSolver();
+				
+				while(runCount > 0)
+				{
+					init_rooms();
+					display_room_info(); // TODO not used for first run in original implementation
+					solver.reset();
+					init_all_constraints(solver, mousepoints);
+					loopCount = iterationSpinner.getValue();
+					
+					while(loopCount > 0)
+					{
+//						Thread.sleep(1);
+						Group group = new Group();
+						begin = System.currentTimeMillis();
+						s = solver.check();
+						end = System.currentTimeMillis();
+						System.out.println(s);
+						System.out.println("Solve time: " + (end - begin) + " ms");
+						// Traversing statistics
+						BoolExpr[] asrts = solver.getAssertions();
+						System.out.println("@@@ Assertions @@@");
+//						i = 0;
+//						for(BoolExpr asrt : asrts)
+//						{
+//							i = i + 1;
+//							// System.out.println("Assertion: " + asrt);
+//						}
+						System.out.println("Total assertions: " + asrts.length);
+						timingInfo.put("solveTime", end - begin);
+						// if the solver found a satisfiable layout, display it to the user
+						if(s == Status.SATISFIABLE)
+						{
+							begin = System.currentTimeMillis();
+							centerPoints = compute_room_centerpoints(solver.getModel());
+							tri = new DelaunayTriangulator(convertPointsToVectors(centerPoints));	// use center points of rooms to initialize Delaunay object
+							tri.triangulate();
+							end = System.currentTimeMillis();
+							timingInfo.put("delaunayTime", end - begin);
+							begin = System.currentTimeMillis();
+							edges = new ArrayList<>();
+							
+							// TODO may not need this data structure
+							double[][] ar = create_graph_array(tri, centerPoints, edges);	// create matrix containing length of edges between nodes of Delaunay triangulation
+							graph = new KruskalMST(rooms.size());
+							graph.Kruskal(edges.toArray(new Edge[edges.size()]));
+							tcsr = getMst(graph.getVertices());		// get the "compressed-sparse representation of the undirected minimum spanning tree"
+							end = System.currentTimeMillis();
+							timingInfo.put("mstTime", end - begin);
+							drawRooms(solver.getModel(), group, tri, tcsr, centerPoints, mousepoints);
+							updateGrid(solver.getModel());
+							loopCount--;
+							update_timing();
+							Platform.runLater(new Runnable()
+							{
+								@Override
+								public void run()
+								{
+									pane.getChildren().retainAll(controlLines);
+									pane.getChildren().add(group);
+								}
+							});
+							
+						} else {
+							
+							System.out.println("Cannot find room placement!");
+							display_room_info();
+							init_rooms();
+							loopCount = NUM_LOOPS;
+							unsatCount++;	// TODO this number is never reset
+							if(unsatCount > 10)
+							{
+								Platform.runLater(new Runnable()
+								{
+									@Override
+									public void run()
+									{
+										ctx.close();
+										System.exit(1);
+									}
+								});
+							}
+							
+						}// end if
+						
+					}// end while
+					
+					runCount--;
+					//saveAccumulatedTiming();
+					System.out.println("#######\nRun: " + runCount + "\n#######");
+					
+				}// end while
+				
+				make_heatmap();
+				final_data_analysis();
+				
+				Platform.runLater(new Runnable()
+				{
+					@Override
+					public void run()
+					{
+						controlLines.getPoints().clear();
+//						pane.getChildren().retainAll(controlLines);
+					}
+				});
+				
+				if(!stop.isDisabled())
+				{
+					stop.fire();
+				}
+				
+				return null;
+				
+			}// end call
+		};
+	}
 	
 }// end Smt_Dungeon
