@@ -35,6 +35,8 @@ import java.util.Map;
 import java.util.Random;
 import java.util.stream.IntStream;
 
+import javax.imageio.ImageIO;
+
 //import javax.print.attribute.standard.NumberOfInterveningJobs;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Context;
@@ -43,6 +45,15 @@ import com.microsoft.z3.Model;
 import com.microsoft.z3.Status;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Z3Exception;
+
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.data.xy.DefaultIntervalXYDataset;
+import org.jfree.data.general.DefaultHeatMapDataset;
+import org.jfree.data.general.HeatMapUtils;
+import org.jfree.chart.renderer.GrayPaintScale;
+import org.jfree.chart.ChartFactory;
+import org.jfree.svg.SVGGraphics2D;
+import org.jfree.svg.SVGUtils;
 
 // The only methods that use the below libraries are draw_rooms, create_graph_array, draw_passageways
 import edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation.delaunay.*;
@@ -923,7 +934,24 @@ public class Smt_Dungeon extends Application
 	
 	private void makeHeatmap()
 	{
-		// TODO implement
+		DefaultHeatMapDataset dataset = new DefaultHeatMapDataset(CANVAS_WIDTH / GRID_CELL, CANVAS_HEIGHT / GRID_CELL, 0,CANVAS_WIDTH / GRID_CELL, 0, CANVAS_HEIGHT / GRID_CELL);
+		for(int i = 0; i < gridCounts.length; i++)
+		{
+			for(int j = 0; j < gridCounts[i].length; j++)
+			{
+				// TODO may need to swap i and j
+				dataset.setZValue(i, j, gridCounts[i][j] / NUM_RUNS);
+			}
+		}
+		try
+		{
+			File file = new File("{}x{}_{}_{}_{}_{}_{}_{}rooms_{}runs");
+			ImageIO.write(HeatMapUtils.createHeatMapImage(dataset, new GrayPaintScale()), "jpg", file);
+			
+		} catch(IOException e) {
+			
+			e.printStackTrace();
+		}
 	}
 	
 	private void resetAccumulatedTiming(){
@@ -948,7 +976,18 @@ public class Smt_Dungeon extends Application
 	
 	private void doHistogram(ArrayList<Long> timings, String timing)
 	{
-		// TODO implement
+		File file = new File("{}_hist_{}x{}_{}_{}_{}_{}_{}_{}rooms_{}runs.svg");
+		try
+		{
+			SVGGraphics2D g2 = new SVGGraphics2D(600, 400);
+			DefaultIntervalXYDataset dataset = new DefaultIntervalXYDataset();
+			ChartFactory.createHistogram(null, null, null, dataset).draw(g2, new java.awt.Rectangle(0, 0, 600, 400));;
+			SVGUtils.writeToSVG(file, g2.getSVGElement());
+			
+		} catch(IOException e) {
+			
+			e.printStackTrace();
+		}
 	}
 	
 	private void finalDataAnalysis()
