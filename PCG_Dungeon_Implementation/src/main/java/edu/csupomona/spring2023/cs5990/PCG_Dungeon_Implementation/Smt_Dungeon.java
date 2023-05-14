@@ -23,7 +23,13 @@ import javafx.geometry.Pos;
 import javafx.scene.input.MouseButton;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.FileNotFoundException;
+import java.util.Scanner;
+import java.io.FileReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -101,6 +107,8 @@ public class Smt_Dungeon extends Application
 	private				int			loopCount;
 	private				int			runCount;
 
+	private HashMap<String, Long> timingInfo;
+	private HashMap<String, ArrayList<Long>> accumulatedTimingInfo;
 	
 	public static void main(String[] args)
 	{
@@ -294,13 +302,60 @@ public class Smt_Dungeon extends Application
 	 * @param slv The given Solver.
 	 * @param lines The given control lines.
 	 */
-	private void createPointLineConstraints(Solver slv, HashMap<String, Double> lines){
+	private void createPointLineConstraints(Solver slv, ArrayList<HashMap<String, Double>> lines){
 		String constraint = "";
 		for(int i = 0; i < numberOfRooms; i++){
 			if(bigRoomConstraint && (i == 0 || i == 1 || i ==2)){
 				continue;
 			}
+			double high_y, low_y, high_x, low_x;
 			constraint = "Or(";
+			for(HashMap<String, Double> line: lines){
+				if(line.get("m") > 0){
+					constraint += "And((rooms[i]['y'] <= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
+                               + Double.toString(line.get("x2")) + "+" + Integer.toString(LINEWIDTH) + ") +" + Double.toString(line.get("y2")) + "),\n";
+                	constraint += "(rooms[i]['y'] >= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
+                               + Double.toString(line.get("x2")) + "-" + Integer.toString(LINEWIDTH) + "+" + Integer.toString(rooms.get(i).getWidth()) + ")+" + Double.toString(line.get("y2")) + "),\n";
+				}
+				else{
+					constraint += "And((rooms[i]['y'] >= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
+                               + Double.toString(line.get("x2")) + "+" + Integer.toString(LINEWIDTH) + ") +" + Double.toString(line.get("y2")) + "),\n";
+                	constraint += "(rooms[i]['y'] <= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
+                               + Double.toString(line.get("x2")) + "-" + Integer.toString(LINEWIDTH) + "+" + Integer.toString(rooms.get(i).getWidth()) + ")+" + Double.toString(line.get("y2")) + "),\n";
+				}
+
+				if(line.get("y2") > line.get("y1")){
+					high_y = line.get("y2");
+					low_y = line.get("y1");
+				}
+				else{
+					high_y = line.get("y1");
+					low_y = line.get("y2");
+				}
+
+				if(high_y - rooms.get(i).getHeight() > low_y){
+					constraint += "(rooms[i]['y'] >= " + Double.toString(low_y) + "),\n";
+                	constraint += "(rooms[i]['y'] <= " + Double.toString(high_y) + "-" + Integer.toString(rooms.get(i).getHeight()) + ")),\n";
+				}
+				else{
+					if(line.get("x2") > line.get("x1")){
+						high_x = line.get("x2");
+						low_x = line.get("x1");
+					}
+					else{
+						high_x = line.get("x1");
+						low_x = line.get("x2");
+					}
+					constraint += "(rooms[i]['x'] >= " + Double.toString(low_x) + "),\n";
+					constraint += "(rooms[i]['x'] <= " + Double.toString(high_x) + "-" + Integer.toString(rooms.get(i).getWidth()) + ")),\n";
+				}
+				andClauseCount = andClauseCount + 4;
+				orClauseCount = orClauseCount + 1;
+			}
+			constraint = constraint.substring(0, constraint.length() - 2);
+			constraint += "\n";
+			System.out.println("Room: " + Integer.toString(i) + "  Constraint: \n" + constraint + "\n\n");
+			slv.add(eval(constraint));
 		}
 	}
 
@@ -309,20 +364,23 @@ public class Smt_Dungeon extends Application
 	 * @param slv The given Solver.
 	 * @param mousepoints The list of mousepoints.
 	 */
-	private void createMousepointConstraints(Solver slv, ArrayList<ArrayList<Integer>> mousepoints){
-		ArrayList<HashMap<String, Integer>> lines = new ArrayList<HashMap<String, Integer>>();
-		HashMap<String, Integer> l_info = new HashMap<String, Integer>();
-		ArrayList<Integer> prev = null;
-		int x1, y1, x2, y2, m_num, m_den;
-		for(ArrayList<Integer> p: mousepoints){
-			if(prev == null){
-				prev = p;
+	private void createMousepointConstraints(Solver slv, ArrayList<Double> mousepoints){
+		ArrayList<HashMap<String, Double>> lines = new ArrayList<HashMap<String, Double>>();
+		HashMap<String, Double> l_info = new HashMap<String, Double>();
+		double x1, y1, x2, y2, m_num, m_den;
+		double prev_x, prev_y, p_x, p_y;
+		for(int i = 0; i < mousepoints.size(); i += 2){
+			p_x = mousepoints.get(i);
+			p_y = mousepoints.get(i + 1);
+			if(prev_x == 0 && prev_y == 0){
+				prev_x = p_x;
+				prev_y = p_y;
 				continue;
 			}
-			x1 = (prev.get(0) - BORDER);
-			y1 = (prev.get(1) - BORDER) * SCALE_FACTOR;
-			x2 = (p.get(0) - BORDER);
-			y2 = (p.get(1) - BORDER) * SCALE_FACTOR;
+			x1 = (prev_x - BORDER);
+			y1 = (prev_y - BORDER) * SCALE_FACTOR;
+			x2 = (p_x - BORDER);
+			y2 = (p_y - BORDER) * SCALE_FACTOR;
 			m_num = (y2 - y1);
 			if((x2 - x1) == 0){
 				m_den = 1;
@@ -337,13 +395,14 @@ public class Smt_Dungeon extends Application
 			l_info.put("y2", y2);
 			l_info.put("x1", x1);
 			l_info.put("x2", x2);
-			System.out.print("slope: " + Integer.toString(m_num/m_den));
-			System.out.print("  slope_num: " + Integer.toString(m_num));
-			System.out.print("  slope_den: " + Integer.toString(m_den));
-			System.out.print("  x2: " + Integer.toString(x2));
-			System.out.println("  y2: " + Integer.toString(y2));
+			System.out.print("slope: " + Double.toString(m_num/m_den));
+			System.out.print("  slope_num: " + Double.toString(m_num));
+			System.out.print("  slope_den: " + Double.toString(m_den));
+			System.out.print("  x2: " + Double.toString(x2));
+			System.out.println("  y2: " + Double.toString(y2));
 			lines.add(l_info);
-			prev = p;
+			prev_x = p_x;
+			prev_y = p_y;
 		}
 		createPointLineConstraints(slv, lines);
 	}
@@ -394,52 +453,53 @@ public class Smt_Dungeon extends Application
 	 */
 	private void initAllConstraints(Solver slv, ArrayList<Double> mousepoints)
 	{
+		long begin, all_begin, end, all_end;
 		andClauseCount = 0;
 		orClauseCount = 0;
-//		begin = System.currentTimeMillis();
-//		all_begin = begin;
+		begin = System.currentTimeMillis();
+		all_begin = begin;
 		createCanvasConstraints(slv);
-//		end = System.currentTimeMillis();
-//		timingInfo.put("createCanvasConstraints", end - begin);
+		end = System.currentTimeMillis();
+		timingInfo.put("createCanvasConstraints", (end - begin) / 1000.0);
 		
 		if(bigRoomConstraint)
 		{
-//			begin = System.currentTimeMillis();
+			begin = System.currentTimeMillis();
 			createBigRoomConstraints(slv);
-//			end = System.currentTimeMillis();
-//			timingInfo.put("createBigRoomConstraints", end - begin);
+			end = System.currentTimeMillis();
+			timingInfo.put("createBigRoomConstraints", (end - begin) / 1000.0);
 		}
-//		begin = System.currentTimeMillis();
+		begin = System.currentTimeMillis();
 		createSeparationContraints(slv);
-//		end = System.currentTimeMillis();
-//		timingInfo.put("createSeparationConstraints", end - begin);
+		end = System.currentTimeMillis();
+		timingInfo.put("createSeparationConstraints", (end - begin) / 1000.0);
 		
 		if(lineConstraints)
 		{
-//			begin = System.currentTimeMillis();
+			begin = System.currentTimeMillis();
 			createLineConstraints(slv);
-//			end = System.currentTimeMillis();
-//			timingInfo.put("createLineConstraints", end - begin);
+			end = System.currentTimeMillis();
+			timingInfo.put("createLineConstraints", (end - begin) / 1000.0);
 		}
 		
 		if(quadConstraints)
 		{
-//			begin = System.currentTimeMillis();
+			begin = System.currentTimeMillis();
 			createQuadConstraints(slv);
-//			end = System.currentTimeMillis();
-//			timingInfo.put("createQuadConstraints", end - begin);
+			end = System.currentTimeMillis();
+			timingInfo.put("createQuadConstraints", (end - begin) / 1000.0);
 		}
 		
 		if(mousepoints.size() >= 2)
 		{
-//			begin = System.currentTimeMillis();
+			begin = System.currentTimeMillis();
 			createMousepointConstraints(slv, mousepoints);
-//			end = System.currentTimeMillis();
-//			timingInfo.put("createControlLineConstraints", end - begin);
+			end = System.currentTimeMillis();
+			timingInfo.put("createControlLineConstraints", (end - begin) / 1000.0);
 		}
 		
-//		all_end = System.currentTimeMillis();
-//		timingInfo.put("createAllConstraints", all_end - all_begin);
+		all_end = System.currentTimeMillis();
+		timingInfo.put("createAllConstraints", (all_end - all_begin) / 1000.0);
 		System.out.println("======");
 		System.out.println("And clause count: " + andClauseCount);
 		System.out.println("Or clause count: " + orClauseCount);
@@ -450,7 +510,10 @@ public class Smt_Dungeon extends Application
 	 */
 	private void displayRoomInfo()
 	{
-		// TODO implement
+		for(int i = 0; i < numberOfRooms; i++){
+			System.out.println("Room " + Integer.toString(i) + ":: width: " + Integer.toString(rooms.get(i).getWidth()) 
+			+ "  height: " + Integer.toString(rooms.get(i).getHeight()));
+		}
 	}
 	
 	/**
@@ -863,30 +926,131 @@ public class Smt_Dungeon extends Application
 		// TODO implement
 	}
 	
+	private void resetAccumulatedTiming(){
+		for(String timing: accumulatedTimingInfo.keySet()){
+			accumulatedTimingInfo.put(timing, new ArrayList<Long>());
+		}
+	}
+
 	private void updateTiming()
 	{
-		// TODO implement
+		if(accumulatedTimingInfo == null){
+			System.out.println("Initializing accumulatedTimingInfo");
+			for(String timing: timingInfo.keySet()){
+				accumulatedTimingInfo.put(timing, new ArrayList<Long>());
+			}
+		}
+
+		for(String timing: timingInfo.keySet()){
+			accumulatedTimingInfo.get(timing).add(timingInfo.get(timing));
+		}
 	}
 	
-	private void doHistogram(/**/)
+	private void doHistogram(ArrayList<Long> timings, String timing)
 	{
 		// TODO implement
 	}
 	
 	private void finalDataAnalysis()
 	{
-		// TODO implement
-		doHistogram(/**/);
+		HashMap<String, Long> finalAnalysis = new HashMap<String, Long>();
+		String filename, quadConstraint;
+		for(String timing: accumulatedTimingInfo.keySet()){
+			ArrayList<Long> timings = accumulatedTimingInfo.get(timing);
+			ArrayList<Long> timingsCopy = new ArrayList<Long>();
+			long upper, lower;
+			long avg, med, max, sum;
+			long min = timings.get(0);
+			for(Long time: timings){
+				timingsCopy.add(time);
+				sum += time;
+				if(time > max){
+					max = time;
+				}
+				else if(time < min){
+					min = time;
+				}
+			}
+			avg = sum / timings.size();
+			Collections.sort(timingsCopy);
+			if(timingsCopy.size() % 2 == 1){
+				med = timingsCopy.get((timingsCopy.size() + 1) / 2 - 1);
+			}
+			else{
+				lower = timingsCopy.get(timingsCopy.size() / 2 - 1);
+				upper = timingsCopy.get(timingsCopy.size() / 2);
+				med = (lower + upper) / 2;
+			}
+
+			finalAnalysis.put(timing + "_average", avg);
+			System.out.println(timing + " average " + Long.toString(avg));
+			finalAnalysis.put(timing + "_median", med);
+			System.out.println(timing + " median " + Long.toString(med));
+			finalAnalysis.put(timing + "_minimum", min);
+			System.out.println(timing + " minimum " + Long.toString(min));
+			finalAnalysis.put(timing + "_maximum", max);
+			System.out.println(timing + " maximum " + Long.toString(max));
+
+			doHistogram(accumulatedTimingInfo.get(timing), timing);
+
+			if(quadConstraints){
+				quadConstraint = "quads";
+			}
+			else{
+				quadConstraint = "noquads";
+			}
+			
+			filename = "Alldata_hist_" + Integer.toString(CANVAS_WIDTH) + "x" +
+			Integer.toString(CANVAS_HEIGHT) + "_" + Integer.toString(ROOM_WIDTH_MIN) + "_" +
+			Integer.toString(ROOM_WIDTH_MAX) + "_" + Integer.toString(ROOM_HEIGHT_MIN) + "_" +
+			Integer.toString(ROOM_HEIGHT_MAX) + "_" + quadConstraint + "_" + Integer.toString(numberOfRooms) +
+			"rooms_" + Integer.toString(NUM_RUNS) + "runs.json";
+			
+			try{
+				FileWriter file = new FileWriter(new File(filename));
+				for(String t: accumulatedTimingInfo.keySet()){
+					file.write(t + "\n");
+					file.write(accumulatedTimingInfo.get(t) + "\n");
+				}
+				file.close();
+			}
+			catch(IOException e){
+				e.printStackTrace();
+			}
+		}
 	}
 	
 	private void saveMousepointData(ArrayList<Double> mp)
 	{
-		// TODO implement
+		try{
+			FileWriter file = new FileWriter(new File("mousepoints.json"));
+			for(double p: mp){
+				file.write(p + "\n");
+			}
+			file.close();
+		}
+		catch(IOException e){
+			e.printStackTrace();
+		}
+		System.out.println("Wrote mousepoints to disk, file: mousepoints.json");
 	}
 	
-	private /*ArrayList<Double>*/void loadMousepointData()
+	private ArrayList<Double> loadMousepointData()
 	{
-		// TODO implement
+		ArrayList<Double> mp = new ArrayList<Double>();
+		try {
+			File obj = new File("mousepoints.json");
+			Scanner reader = new Scanner(obj);
+			while(reader.hasNextLine()) {
+			  String data = reader.nextLine();
+			  mp.add(Double.parseDouble(data));
+			}
+			reader.close();
+		  } catch (FileNotFoundException e) {
+			e.printStackTrace();
+		  }
+		  System.out.println("Read mousepoints from disk, file: mousepoints.json");
+		  return mp;
 	}
 	
 	/**
