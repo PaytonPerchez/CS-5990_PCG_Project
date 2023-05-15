@@ -76,7 +76,7 @@ public class KruskalMST extends Graph{
 				vertex[b].adj.removeLast();
 			}
 		}
-		System.out.println("Cost: "+cost);
+		//System.out.println("Cost: "+cost);
 	}
 	
 	void Kruskal(int[][] edges){

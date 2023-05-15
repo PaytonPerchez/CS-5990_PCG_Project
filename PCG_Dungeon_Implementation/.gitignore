@@ -1,4 +1,7 @@
 /target/
 #*.classpath
 #*.project
+*.svg
+*.json
+*.png
 /z3/

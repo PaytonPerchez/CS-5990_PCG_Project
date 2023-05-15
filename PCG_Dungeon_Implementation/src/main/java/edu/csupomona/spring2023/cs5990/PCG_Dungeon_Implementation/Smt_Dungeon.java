@@ -2,10 +2,10 @@ package edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation;
 
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.scene.Scene;
 import javafx.scene.Group;
+import javafx.scene.input.MouseButton;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.BorderPane;
@@ -20,14 +20,12 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.RadioButton;
 import javafx.concurrent.Task;
 import javafx.geometry.Pos;
-import javafx.scene.input.MouseButton;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.FileNotFoundException;
 import java.util.Scanner;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,9 +34,7 @@ import java.util.Random;
 import java.util.stream.IntStream;
 
 import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 
-//import javax.print.attribute.standard.NumberOfInterveningJobs;
 import com.microsoft.z3.Solver;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.IntExpr;
@@ -47,8 +43,7 @@ import com.microsoft.z3.Status;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Z3Exception;
 
-import org.jfree.chart.plot.PlotOrientation;
-import org.jfree.data.xy.DefaultIntervalXYDataset;
+import org.jfree.data.statistics.HistogramDataset;
 import org.jfree.data.general.DefaultHeatMapDataset;
 import org.jfree.data.general.HeatMapUtils;
 import org.jfree.chart.renderer.GrayPaintScale;
@@ -56,7 +51,6 @@ import org.jfree.chart.ChartFactory;
 import org.jfree.svg.SVGGraphics2D;
 import org.jfree.svg.SVGUtils;
 
-// The only methods that use the below libraries are draw_rooms, create_graph_array, draw_passageways
 import edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation.delaunay.*;
 import edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation.mst.*;
 
@@ -69,7 +63,7 @@ import edu.csupomona.spring2023.cs5990.PCG_Dungeon_Implementation.mst.*;
  */
 
 /**
- * Java implementation of Jim Whitehead's procedural dungeon generation algorithm
+ * Java implementation of Jim Whitehead's procedural dungeon generation algorithm.
  * Source: (https://github.com/JimWhiteheadUCSC/smt_dungeon)
  * @author Jack Peabody
  * @author Payton Perchez
@@ -102,25 +96,21 @@ public class Smt_Dungeon extends Application
 	private				boolean		showDelaunay		= false;
 	private				boolean		showSparse			= false;
 	private 			ArrayList<Room> rooms;
-//	private		static	HashMap<String, String> directions = new HashMap<>();
-//	static
-//	{
-//		directions.put("vert", "above");
-//		directions.put("vert", "above");
-//	}
 	private				int			andClauseCount		= 0;
 	private				int			orClauseCount		= 0;
-	
 	private				Solver		solver;
 	private				Context		ctx;
-	
 	private				Thread		solverThread;
-	
-	private				int			loopCount;
-	private				int			runCount;
+	private				int			loopCount = 0;
+	private				int			runCount = 0;
 
+	// may not need this data structure (could use Polyline object instead?)
+	// data structure containing points for control lines specified by the user
+	private ArrayList<Double> mousepoints = new ArrayList<>();
+	
+	// time measured in seconds
 	private HashMap<String, Float> timingInfo;
-	private HashMap<String, ArrayList<Float>> accumulatedTimingInfo;
+	private HashMap<String, ArrayList<Float>> accumulatedTimingInfo = new HashMap<>();
 	
 	public static void main(String[] args)
 	{
@@ -130,12 +120,14 @@ public class Smt_Dungeon extends Application
 	/**
 	 * Initializes the dimensions of all rooms.
 	 */
-	private void initRooms(){
-		
+	private void initRooms()
+	{
 		rooms = new ArrayList<>();
-		for(int i = 0; i < numberOfRooms; i++){
+		for(int i = 0; i < numberOfRooms; i++)
+		{
 			Room r = new Room(ctx, i);
-			if((int) ((Math.random() * 101) + 1) <= EXCEPTION_RATE){
+			if((int) ((Math.random() * 101) + 1) <= EXCEPTION_RATE)
+			{
 				//Random random = new Random();
 				//r.setWidth(random.nextInt(ROOM_WIDTH_MAX*4 - ROOM_WIDTH_MIN*4) + (ROOM_WIDTH_MAX*4 - ROOM_WIDTH_MIN*4));
 				r.setWidth((int) ((Math.random() * ((ROOM_WIDTH_MAX * 4) - (ROOM_WIDTH_MIN * 4) + 1)) + (ROOM_WIDTH_MIN * 4)));
@@ -167,7 +159,7 @@ public class Smt_Dungeon extends Application
 			cp[i] = new float[] {rooms.get(i).getCenterX(), rooms.get(i).getCenterY()};
 		}
 		
-		return cp; // TODO may not need (use rooms.get(i).getCenterX/Y instead?)
+		return cp; // may not need (use rooms.get(i).getCenterX/Y instead?)
 	}
 
 	/**
@@ -175,8 +167,8 @@ public class Smt_Dungeon extends Application
 	 * @param slv The given Solver.
 	 */
 	@SuppressWarnings("unchecked")
-	private void createBigRoomConstraints(Solver slv){
-		
+	private void createBigRoomConstraints(Solver slv)
+	{
 		// Throne room
 		rooms.get(0).setWidth((int) (0.4 * CANVAS_WIDTH));
 		rooms.get(0).setHeight((int) (0.6 * CANVAS_WIDTH * SCALE_FACTOR));
@@ -194,18 +186,23 @@ public class Smt_Dungeon extends Application
 		rooms.get(1).setWidth((int) (0.4 * CANVAS_WIDTH));
 		rooms.get(1).setHeight((int) (0.05 * CANVAS_WIDTH * SCALE_FACTOR));
 		rooms.get(2).setWidth(15);
-		rooms.get(2).setWidth(15 * SCALE_FACTOR);
+		rooms.get(2).setHeight(15 * SCALE_FACTOR);
 	}
 
 	/**
 	 * Add constraints to the given Solver that determine the separation between rooms.
 	 * @param slv The given Solver.
 	 */
-	private void createSeparationContraints(Solver slv){
-		for(int i = 0; i < numberOfRooms; i++){
-			for(int j = i + 1; j < numberOfRooms; j++){
-				if(bigRoomConstraint){
-					if(i == 0 && (j == 1 || j == 2)){
+	private void createSeparationContraints(Solver slv)
+	{
+		for(int i = 0; i < numberOfRooms; i++)
+		{
+			for(int j = i + 1; j < numberOfRooms; j++)
+			{
+				if(bigRoomConstraint)
+				{
+					if(i == 0 && (j == 1 || j == 2))
+					{
 						addBigRoomSeparationConstraint(slv, i, j);
 					}
 					else{
@@ -315,32 +312,36 @@ public class Smt_Dungeon extends Application
 	 * @param lines The given control lines.
 	 */
 	@SuppressWarnings("unchecked")
-	private void createPointLineConstraints(Solver slv, ArrayList<HashMap<String, Double>> lines){
+	private void createPointLineConstraints(Solver slv, ArrayList<HashMap<String, Double>> lines)
+	{
 		String constraint = "";
-		for(int i = 0; i < numberOfRooms; i++){
-			if(bigRoomConstraint && (i == 0 || i == 1 || i ==2)){
+		for(int i = 0; i < numberOfRooms; i++)
+		{
+			if(bigRoomConstraint && (i == 0 || i == 1 || i ==2))
+			{
 				continue;
 			}
 			double high_y, low_y, high_x, low_x;
-			BoolExpr[] constraints = new BoolExpr[3];
+			BoolExpr[] finalConstraints = new BoolExpr[lines.size()];
+			BoolExpr[] currentConstraints = new BoolExpr[4];
 			constraint = "Or(";
-			for(HashMap<String, Double> line: lines){
-				if(line.get("m") > 0){
-					constraints[0] = ctx.mkAnd(
-						ctx.mkLe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) - LINEWIDTH))), ctx.mkInt(Math.round(line.get("y2"))))),
-						ctx.mkGe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) + LINEWIDTH - rooms.get(i).getWidth()))), ctx.mkInt(Math.round(line.get("y2")))))
-					);
+			
+			for(HashMap<String, Double> line: lines)
+			{
+				if(line.get("m") > 0)
+				{
+					currentConstraints[0] = ctx.mkLe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) - LINEWIDTH))), ctx.mkInt(Math.round(line.get("y2")))));
+					currentConstraints[1] = ctx.mkGe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) + LINEWIDTH - rooms.get(i).getWidth()))), ctx.mkInt(Math.round(line.get("y2")))));
+					
 					constraint += "And((rooms[i]['y'] <= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
                                + Double.toString(line.get("x2")) + "+" + Integer.toString(LINEWIDTH) + ") +" + Double.toString(line.get("y2")) + "),\n";
                 	constraint += "(rooms[i]['y'] >= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
                                + Double.toString(line.get("x2")) + "-" + Integer.toString(LINEWIDTH) + "+" + Integer.toString(rooms.get(i).getWidth()) + ")+" + Double.toString(line.get("y2")) + "),\n";
 				}
 				else{
-					constraints[0] = ctx.mkAnd(
-						ctx.mkGe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) - LINEWIDTH), ctx.mkInt(Math.round(line.get("y2"))))))),
-						// rooms[i]['y'] <= line['m'] * (rooms[i]['x'] - (line['x2'] + LINEWIDTH - rooms[i]['width'])) + line['y2']
-						ctx.mkLe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) + LINEWIDTH - rooms.get(i).getWidth()), ctx.mkInt(Math.round(line.get("y2")))))))
-					);
+					currentConstraints[0] = ctx.mkGe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) - LINEWIDTH), ctx.mkInt(Math.round(line.get("y2")))))));
+					currentConstraints[1] = ctx.mkLe(rooms.get(i).getY(), ctx.mkAdd(ctx.mkMul(ctx.mkInt(Math.round(line.get("m"))), ctx.mkSub(rooms.get(i).getX(), ctx.mkInt(Math.round(line.get("x2")) + LINEWIDTH - rooms.get(i).getWidth()), ctx.mkInt(Math.round(line.get("y2")))))));
+					
 					constraint += "And((rooms[i]['y'] >= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
                                + Double.toString(line.get("x2")) + "+" + Integer.toString(LINEWIDTH) + ") +" + Double.toString(line.get("y2")) + "),\n";
                 	constraint += "(rooms[i]['y'] <= " + Double.toString(line.get("m")) + "* (rooms[i]['x'] - "
@@ -359,8 +360,8 @@ public class Smt_Dungeon extends Application
 				// check to see if y-height range is too small. If so, use x range instead
 				if(high_y - rooms.get(i).getHeight() > low_y){
 					// y range is fine
-					constraints[1] = ctx.mkGe(rooms.get(i).getY(), ctx.mkInt(Math.round(low_y)));
-					constraints[2] = ctx.mkLe(rooms.get(i).getY(), ctx.mkInt(Math.round(high_y) - rooms.get(i).getHeight()));
+					currentConstraints[2] = ctx.mkGe(rooms.get(i).getY(), ctx.mkInt(Math.round(low_y)));
+					currentConstraints[3] = ctx.mkLe(rooms.get(i).getY(), ctx.mkInt(Math.round(high_y) - rooms.get(i).getHeight()));
 					constraint += "(rooms[i]['y'] >= " + Double.toString(low_y) + "),\n";
                 	constraint += "(rooms[i]['y'] <= " + Double.toString(high_y) + "-" + Integer.toString(rooms.get(i).getHeight()) + ")),\n";
 				}
@@ -374,35 +375,43 @@ public class Smt_Dungeon extends Application
 						high_x = line.get("x1");
 						low_x = line.get("x2");
 					}
-					constraints[1] = ctx.mkGe(rooms.get(i).getX(), ctx.mkInt(Math.round(low_x)));
-					constraints[2] = ctx.mkLe(rooms.get(i).getX(), ctx.mkInt(Math.round(high_x) - rooms.get(i).getWidth()));
+					currentConstraints[2] = ctx.mkGe(rooms.get(i).getX(), ctx.mkInt(Math.round(low_x)));
+					currentConstraints[3] = ctx.mkLe(rooms.get(i).getX(), ctx.mkInt(Math.round(high_x) - rooms.get(i).getWidth()));
 					constraint += "(rooms[i]['x'] >= " + Double.toString(low_x) + "),\n";
 					constraint += "(rooms[i]['x'] <= " + Double.toString(high_x) + "-" + Integer.toString(rooms.get(i).getWidth()) + ")),\n";
 				}
+				finalConstraints[lines.indexOf(line)] = ctx.mkAnd(currentConstraints);
 				andClauseCount += 4;
 				orClauseCount += 1;
 			}
 			constraint = constraint.substring(0, constraint.length() - 2);
 			constraint += "\n";
+			
+			slv.add(ctx.mkOr(finalConstraints));
 			System.out.println("Room: " + Integer.toString(i) + "  Constraint: \n" + constraint + "\n\n");
-			slv.add(ctx.mkOr(constraints[0], constraints[1], constraints[2]));
 		}
-	}
+		
+	}// end createPointLineConstraints
 
 	/**
 	 * Add a series of linear constraints following lines created by mousepoints.
 	 * @param slv The given Solver.
 	 * @param mousepoints The list of mousepoints.
 	 */
-	private void createMousepointConstraints(Solver slv, ArrayList<Double> mousepoints){
+	private void createMousepointConstraints(Solver slv, ArrayList<Double> mousepoints)
+	{
 		ArrayList<HashMap<String, Double>> lines = new ArrayList<HashMap<String, Double>>();
-		HashMap<String, Double> l_info = new HashMap<String, Double>();
+		HashMap<String, Double> l_info;
 		double x1, y1, x2, y2, m_num, m_den;
 		double prev_x = 0, prev_y = 0, p_x, p_y;
-		for(int i = 0; i < mousepoints.size(); i += 2){
+		
+		for(int i = 0; i < mousepoints.size(); i += 2)
+		{
+			l_info = new HashMap<String, Double>();
 			p_x = mousepoints.get(i);
 			p_y = mousepoints.get(i + 1);
-			if(prev_x == 0 && prev_y == 0){
+			if(prev_x == 0 && prev_y == 0)
+			{
 				prev_x = p_x;
 				prev_y = p_y;
 				continue;
@@ -413,7 +422,8 @@ public class Smt_Dungeon extends Application
 			y2 = (p_y - BORDER) * SCALE_FACTOR;
 			// represent slope as a numerator and denominator, multiplied by 1000 (to integerize the floating point math)
 			m_num = (y2 - y1);
-			if((x2 - x1) == 0){
+			if((x2 - x1) == 0)
+			{
 				m_den = 1;
 			}
 			else{
@@ -436,7 +446,8 @@ public class Smt_Dungeon extends Application
 			prev_y = p_y;
 		}
 		createPointLineConstraints(slv, lines);
-	}
+		
+	}// end createMousepointConstraints
 
 	/**
 	 * Adds constraints to the given Solver to restrict room placement to specific quadrants of the playfield.
@@ -475,7 +486,8 @@ public class Smt_Dungeon extends Application
 			}
 			andClauseCount += 2;
 		}
-	}
+		
+	}// end createQuadConstraints
 	
 	/**
 	 * Initializes all constraints and adds them to the given Solver.
@@ -521,7 +533,7 @@ public class Smt_Dungeon extends Application
 			timingInfo.put("createQuadConstraints", (end - begin) / 1000f);
 		}
 		
-		if(mousepoints.size() >= 2)
+		if(mousepoints.size() >= 4)
 		{
 			begin = System.currentTimeMillis();
 			createMousepointConstraints(slv, mousepoints);
@@ -534,7 +546,8 @@ public class Smt_Dungeon extends Application
 		System.out.println("======");
 		System.out.println("And clause count: " + andClauseCount);
 		System.out.println("Or clause count: " + orClauseCount);
-	}
+		
+	}// end initAllConstraints
 
 	/**
 	 * Displays the information of all rooms.
@@ -555,9 +568,8 @@ public class Smt_Dungeon extends Application
 	 * @param tri Delaunay triangulation for room layout.
 	 * @param mst Minimum spanning tree for room layout.
 	 * @param centerpoints Array of room centerpoints.
-	 * @param mousepoints Array of point coordinates of control lines.
 	 */
-	private void drawRooms(Model m, Group surf, DelaunayTriangulator tri, int[][] mst, float[][] centerpoints, ArrayList<Double> mousepoints)
+	private void drawRooms(Model m, Group surf, DelaunayTriangulator tri, int[][] mst, float[][] centerpoints)
 	{
 		Rectangle rectangle;
 		for(int i = 0; i < numberOfRooms; i++)
@@ -590,10 +602,11 @@ public class Smt_Dungeon extends Application
 			}// end switch
 			
 			surf.getChildren().add(rectangle);
-			// TODO remove in final product
+			
+			// Label each rectangle
 			Label label = new Label(i + "");
 			label.setLayoutX(rooms.get(i).getCenterX());
-			label.setLayoutY(valueOf(m, rooms.get(i).getY()) / SCALE_FACTOR);
+			label.setLayoutY(valueOf(m, rooms.get(i).getY()) / SCALE_FACTOR + rectangle.getStrokeWidth());
 			surf.getChildren().add(label);
 			
 		}// end for
@@ -644,29 +657,9 @@ public class Smt_Dungeon extends Application
 			}
 		}
 		
-		// TODO may not need this code
-		if(!mousepoints.isEmpty())
-		{
-			Polyline lines = new Polyline();
-			lines.setStroke(Color.rgb(139, 0, 0));	// dark red
-			lines.getPoints().addAll(mousepoints);
-			surf.getChildren().add(lines);
-		}
-		
 		drawPassageways(m, surf, mst);
 		
 	}// end drawRooms
-	
-	/**
-	 * Computes the distance between the two given points.
-	 * @param point1 Float array in the form [x1, y1].
-	 * @param point2 Float array in the form [x2, y2].
-	 * @return The distance between the two given points
-	 */
-	private double distance(float[] point1, float[] point2)
-	{// TODO may not need this method
-		return Math.sqrt(Math.pow((point2[0] - point1[0]), 2) + Math.pow((point2[1] - point1[1]) / SCALE_FACTOR, 2));
-	}
 	
 	/**
 	 * Computes the distance between the two given points.
@@ -681,65 +674,26 @@ public class Smt_Dungeon extends Application
 	}
 	
 	/**
-	 * Creates 2D array (matrix) representing the given triangulation.
+	 * Creates a list of edges representing the given triangulation.
 	 * @param tri The given triangulation.
-	 * @param cp The set of points in the triangulation. TODO consider removing this argument.
-	 * @param edges The set of edges in the triangulation.
-	 * @return The matrix containing distances between points (rows/columns) in the given triangulation. TODO may only need to return edges
+	 * @param cp The set of points in the triangulation.
+	 * @return A list containing distances between points (edges) in the given triangulation.
 	 */
-	private double[][] createGraphArray(DelaunayTriangulator tri, float[][] cp, ArrayList<Edge> edges)
+	private ArrayList<Edge> createGraphArray(DelaunayTriangulator tri, float[][] cp)
 	{
-		double[][] graph = new double[numberOfRooms][numberOfRooms];
+		ArrayList<Edge> edges = new ArrayList<>();
 		
 		for(Triangle2D t : tri.getTriangles())
 		{
-			// Prevent duplicate edges/distances
-			if(true)//.a.index < t.b.index)
-			{
-//				graph[t.a.index][t.b.index] = distance(cp[t.a.index], cp[t.b.index]);
-				graph[t.a.index][t.b.index] = distance(t.a, t.b);
-				edges.add(new Edge(t.a.index, t.b.index, graph[t.a.index][t.b.index]));
-			}
-			
-			// Prevent duplicate edges/distances
-			if(true)//.b.index < t.c.index)
-			{
-//				graph[t.b.index][t.c.index] = distance(cp[t.b.index], cp[t.c.index]);
-				graph[t.b.index][t.c.index] = distance(t.b, t.c);
-				edges.add(new Edge(t.b.index, t.c.index, graph[t.b.index][t.c.index]));
-			}
-			
-			// Prevent duplicate edges/distances
-			if(true)//.c.index < t.a.index)
-			{
-//				graph[t.c.index][t.a.index] = distance(cp[t.c.index], cp[t.a.index]);
-				graph[t.c.index][t.a.index] = distance(t.c, t.a);
-				edges.add(new Edge(t.c.index, t.a.index, graph[t.c.index][t.a.index]));
-			}
+			edges.add(new Edge(t.a.index, t.b.index, distance(t.a, t.b)));
+			edges.add(new Edge(t.c.index, t.a.index, distance(t.c, t.a)));
+			edges.add(new Edge(t.b.index, t.c.index, distance(t.b, t.c)));
 			
 		}// end for
 		
-		// TODO remove after program works
-//		for(float[] a : cp)
-//		{
-//			for(float f : a)
-//			{
-//				System.out.print(" " + f);
-//			}
-//			System.out.println();
-//		}
-		for(double[] a : graph)
-		{
-			for(double d : a)
-			{
-				System.out.print(" " + d);
-			}
-			System.out.println();
-		}
+		return edges;
 		
-		return graph;
-		
-	}// end createGraphArray
+	}
 	
 	/**
 	 * Provides the set of integers that the two given ranges share.
@@ -796,7 +750,7 @@ public class Smt_Dungeon extends Application
 		int passY;
 		
 		for(int[] points : mst)
-		{// TODO check if mst is formatted properly
+		{
 			// Determine which room is above the other room
 			if(valueOf(m, rooms.get(points[0]).getY()) < valueOf(m, rooms.get(points[1]).getY()))
 			{
@@ -828,7 +782,7 @@ public class Smt_Dungeon extends Application
 			
 			Polyline lines = new Polyline();
 			lines.setStrokeWidth(PASSAGE_WIDTH);
-			lines.setStroke(Color.ORANGE); // TODO remove after full implementation
+			lines.setStroke(Color.ORANGE);
 			
 			if(rangeOverlapping(top_x_range, bottom_x_range))
 			{
@@ -891,7 +845,7 @@ public class Smt_Dungeon extends Application
 					
 					lines = new Polyline();
 					lines.setStrokeWidth(PASSAGE_WIDTH);
-					lines.setStroke(Color.ORANGE); // TODO remove after full implementation
+					lines.setStroke(Color.ORANGE);
 					lines.getPoints().addAll(
 						(double) (passX + BORDER), ((passY / (double) SCALE_FACTOR) + BORDER),
 						(double) (passX + BORDER), ((valueOf(m, rooms.get(bottom).getY()) / (double) SCALE_FACTOR) + BORDER)
@@ -952,14 +906,23 @@ public class Smt_Dungeon extends Application
 		}
 	}
 	
+	/**
+	 * Generates a heatmap based on where rooms were placed in the playfield.
+	 */
 	private void makeHeatmap()
 	{
-		DefaultHeatMapDataset dataset = new DefaultHeatMapDataset(CANVAS_WIDTH / GRID_CELL, CANVAS_HEIGHT / GRID_CELL, 0,CANVAS_WIDTH / GRID_CELL, 0, CANVAS_HEIGHT / GRID_CELL);
+		DefaultHeatMapDataset dataset = new DefaultHeatMapDataset(
+			CANVAS_WIDTH / GRID_CELL,
+			CANVAS_HEIGHT / GRID_CELL,
+			0, CANVAS_WIDTH / GRID_CELL,
+			0, CANVAS_HEIGHT / GRID_CELL
+		);
+		
+		// Fill heatmap
 		for(int i = 0; i < gridCounts.length; i++)
 		{
 			for(int j = 0; j < gridCounts[i].length; j++)
 			{
-				// TODO may need to swap i and j
 				dataset.setZValue(j, i, gridCounts[i][j] / NUM_RUNS);
 			}
 		}
@@ -979,39 +942,56 @@ public class Smt_Dungeon extends Application
 			fileName += "noquads_";
 		}
 		fileName += Integer.toString(numberOfRooms) + "rooms_"
-		+ Integer.toString(NUM_RUNS) + "runs.jpg"; // TODO num runs does not match runSpinner
+		+ Integer.toString(runCount) + "runs.png";
+		
+		// Generate heatmap file
 		try
 		{
 			File file = new File(fileName);
-			BufferedImage img = HeatMapUtils.createHeatMapImage(dataset, new GrayPaintScale());
-			ImageIO.write(img, "jpg", file);
+			ImageIO.write(HeatMapUtils.createHeatMapImage(dataset, new GrayPaintScale()), "png", file);
 			
 		} catch(IOException e) {
 			
 			e.printStackTrace();
 		}
-	}
+	}// end makeHeatmap
 	
-	private void resetAccumulatedTiming(){
-		for(String timing: accumulatedTimingInfo.keySet()){
+	/**
+	 * Prepares the accumulated timing data structure for the next set of runs.
+	 */
+	private void resetAccumulatedTiming()
+	{
+		for(String timing: accumulatedTimingInfo.keySet())
+		{
 			accumulatedTimingInfo.put(timing, new ArrayList<Float>());
 		}
 	}
 
+	/**
+	 * Updates the accumulated timing data structure with data from the most recent iteration.
+	 */
 	private void updateTiming()
 	{
-		if(accumulatedTimingInfo.isEmpty()){
+		if(accumulatedTimingInfo.isEmpty())
+		{
 			System.out.println("Initializing accumulatedTimingInfo");
-			for(String timing: timingInfo.keySet()){
+			for(String timing: timingInfo.keySet())
+			{
 				accumulatedTimingInfo.put(timing, new ArrayList<Float>());
 			}
 		}
 
-		for(String timing: timingInfo.keySet()){
+		for(String timing: timingInfo.keySet())
+		{
 			accumulatedTimingInfo.get(timing).add(timingInfo.get(timing));
 		}
 	}
 	
+	/**
+	 * Generates a histogram based on the performance of the specified task.
+	 * @param timings List containing runtimes of the specified task.
+	 * @param timing The specified task.
+	 */
 	private void doHistogram(ArrayList<Float> timings, String timing)
 	{
 		String fileName = timing + "_hist_"
@@ -1030,13 +1010,22 @@ public class Smt_Dungeon extends Application
 			fileName += "noquads_";
 		}
 		fileName += Integer.toString(numberOfRooms) + "rooms_"
-		+ Integer.toString(NUM_RUNS) + "runs.svg";
-		File file = new File(fileName);
+		+ Integer.toString(runCount) + "runs.svg";
+		
+		// Convert list to array
+		double[] a = new double[timings.size()];
+		for(int i = 0; i < timings.size(); i++)
+		{
+			a[i] = timings.get(i);
+		}
+		
+		// Generate histogram file
 		try
 		{
+			File file = new File(fileName);
 			SVGGraphics2D g2 = new SVGGraphics2D(900, 680);
-			DefaultIntervalXYDataset dataset = new DefaultIntervalXYDataset();
-			//dataset.addSeries(seriesKey, data);
+			HistogramDataset dataset = new HistogramDataset();
+			dataset.addSeries(timing, a, 100);
 			ChartFactory.createHistogram(null, null, null, dataset).draw(g2, new java.awt.Rectangle(0, 0, 900, 680));;
 			SVGUtils.writeToSVG(file, g2.getSVGElement());
 			
@@ -1044,19 +1033,29 @@ public class Smt_Dungeon extends Application
 			
 			e.printStackTrace();
 		}
-	}
+		
+	}// end doHistogram
 	
+	/**
+	 * Generates histogram charts based on all task performances stored in the accumulated
+	 * timing data structure. Also generates json file containing performances of all tasks.
+	 */
 	private void finalDataAnalysis()
 	{
 		HashMap<String, Float> finalAnalysis = new HashMap<String, Float>();
 		String filename, quadConstraint;
-		for(String timing: accumulatedTimingInfo.keySet()){
+		
+		for(String timing: accumulatedTimingInfo.keySet())
+		{
 			ArrayList<Float> timings = accumulatedTimingInfo.get(timing);
 			ArrayList<Float> timingsCopy = new ArrayList<Float>();
 			float upper, lower;
 			float avg, med, max = 0, sum = 0;
 			float min = timings.get(0);
-			for(Float time: timings){
+			
+			// Fill timingsCopy and find min/max
+			for(Float time: timings)
+			{
 				timingsCopy.add(time);
 				sum += time;
 				if(time > max){
@@ -1066,7 +1065,11 @@ public class Smt_Dungeon extends Application
 					min = time;
 				}
 			}
+			
+			// Compute average
 			avg = sum / timings.size();
+			
+			// Find the median
 			Collections.sort(timingsCopy);
 			if(timingsCopy.size() % 2 == 1){
 				med = timingsCopy.get((timingsCopy.size() + 1) / 2 - 1);
@@ -1086,6 +1089,7 @@ public class Smt_Dungeon extends Application
 			finalAnalysis.put(timing + "_maximum", max);
 			System.out.println(timing + " maximum " + Float.toString(max));
 
+			// Generate histogram
 			doHistogram(accumulatedTimingInfo.get(timing), timing);
 
 			if(quadConstraints){
@@ -1099,22 +1103,30 @@ public class Smt_Dungeon extends Application
 			Integer.toString(CANVAS_HEIGHT) + "_" + Integer.toString(ROOM_WIDTH_MIN) + "_" +
 			Integer.toString(ROOM_WIDTH_MAX) + "_" + Integer.toString(ROOM_HEIGHT_MIN) + "_" +
 			Integer.toString(ROOM_HEIGHT_MAX) + "_" + quadConstraint + "_" + Integer.toString(numberOfRooms) +
-			"rooms_" + Integer.toString(NUM_RUNS) + "runs.json";
+			"rooms_" + Integer.toString(runCount) + "runs.json";
 			
+			// Generate json file
 			try{
 				FileWriter file = new FileWriter(new File(filename));
-				for(String t: accumulatedTimingInfo.keySet()){
+				for(String t: finalAnalysis.keySet())
+				{
 					file.write(t + "\n");
-					file.write(accumulatedTimingInfo.get(t) + "\n");
+					file.write(finalAnalysis.get(t) + "\n");
 				}
 				file.close();
 			}
 			catch(IOException e){
+				
 				e.printStackTrace();
 			}
 		}
-	}
+		
+	}// end finalDataAnalysis
 	
+	/**
+	 * Saves points of control lines to a file.
+	 * @param mp Points of control lines.
+	 */
 	private void saveMousepointData(ArrayList<Double> mp)
 	{
 		try{
@@ -1125,23 +1137,32 @@ public class Smt_Dungeon extends Application
 			file.close();
 		}
 		catch(IOException e){
+			
 			e.printStackTrace();
 		}
 		System.out.println("Wrote mousepoints to disk, file: mousepoints.json");
 	}
 	
+	/**
+	 * Loads points to be used in control line generation.
+	 * @return Points to be used in control line generation.
+	 */
 	private ArrayList<Double> loadMousepointData()
 	{
 		ArrayList<Double> mp = new ArrayList<Double>();
 		try {
 			File obj = new File("mousepoints.json");
 			Scanner reader = new Scanner(obj);
-			while(reader.hasNextLine()) {
+			
+			while(reader.hasNextLine())
+			{
 			  String data = reader.nextLine();
 			  mp.add(Double.parseDouble(data));
 			}
 			reader.close();
+			
 		  } catch (FileNotFoundException e) {
+			  
 			e.printStackTrace();
 		  }
 		  System.out.println("Read mousepoints from disk, file: mousepoints.json");
@@ -1173,7 +1194,7 @@ public class Smt_Dungeon extends Application
 	private int[][] getMst(Vertex[] vertices)
 	{
 		HashMap<Integer, ArrayList<Integer>> uniqueAdjacencies = new HashMap<>();
-		int adjacencyCount = 0;		// the number of pairs
+		int adjacencyCount = 0;	 // the number of pairs
 		
 		for(Vertex currentVertex : vertices)
 		{
@@ -1210,25 +1231,6 @@ public class Smt_Dungeon extends Application
 		
 		pairList.toArray(pairArray);
 		
-		// TODO remove after program works
-		for(Vertex v1 : vertices)
-		{
-			System.out.print(v1.getIndex() + ": ");
-			for(Vertex v2 : v1.getAdjacencies())
-			{
-				System.out.print(v2.getIndex() + ", ");
-			}
-			System.out.println();
-		}
-		for(int[] a : pairArray)
-		{
-			for(int i : a)
-			{
-				System.out.print(" " + i);
-			}
-			System.out.println();
-		}
-		
 		return pairArray;
 		
 	}// end getMst
@@ -1247,10 +1249,8 @@ public class Smt_Dungeon extends Application
 	@Override
 	public void start(Stage primaryStage)
 	{
-		// TODO may not need this data structure (could use Polyline object instead?)
-		final ArrayList<Double> mousepoints = new ArrayList<>();	// data structure containing points for control lines specified by the user
-		
 		Polyline controlLines = new Polyline();
+		controlLines.setStroke(Color.rgb(139, 0, 0));	// dark red
 		Pane pane = new Pane(controlLines); // displays the dungeon layout and contains control lines
 		
 		// control for specifying the number of rooms in the dungeon
@@ -1300,12 +1300,12 @@ public class Smt_Dungeon extends Application
 		});
 		
 		// Layout controls
-		RadioButton toggleDelaunay = new RadioButton("Delaunay");
+		RadioButton toggleDelaunay = new RadioButton("Triangulation");
 		toggleDelaunay.setOnAction(e ->
 		{
 			showDelaunay = !showDelaunay;
 		});
-		RadioButton toggleSparse = new RadioButton("Sparse");
+		RadioButton toggleSparse = new RadioButton("MST");
 		toggleSparse.setOnAction(e ->
 		{
 			showSparse = !showSparse;
@@ -1320,12 +1320,10 @@ public class Smt_Dungeon extends Application
 		Button loadMousepoints = new Button("Load");
 		loadMousepoints.setOnAction(e ->
 		{
-			mousepoints.clear();//TODO
+			mousepoints.clear();
 			controlLines.getPoints().clear();
-//			mousepoints = loadMousepointData();
-//			FileChooser fileChooser = new FileChooser();
-//			//fileChooser.setInitialDirectory(new File(PATH));
-//			File selectedFile = fileChooser.showOpenDialog(new Stage());
+			mousepoints = loadMousepointData();
+			controlLines.getPoints().addAll(mousepoints);
 		});
 		VBox mousepointControls = new VBox(
 			new Label("Mousepoints"),
@@ -1341,7 +1339,7 @@ public class Smt_Dungeon extends Application
 		});
 		
 		HBox lowerControls = new HBox(
-			new VBox(new Label("Constraints"), toggleLineConstraints, toggleQuadConstraints, toggleBigRoomConstraint),
+			new VBox(new Label("Constraints"), /*toggleLineConstraints, /*toggleQuadConstraints, */toggleBigRoomConstraint),
 			new VBox(new Label("Display"), toggleDelaunay, toggleSparse),
 			mousepointControls,
 			clearPane
@@ -1355,15 +1353,7 @@ public class Smt_Dungeon extends Application
 		borderPane.setTop(uiControls);
 		borderPane.setCenter(pane);
 		
-		Button testButton = new Button("Test");
-		testButton.setOnAction(event ->
-		{
-			ctx = new Context();
-			solver = ctx.mkSolver();
-			System.out.println((solver.check() == Status.SATISFIABLE));
-		});
-		//pane.getChildren().add(testButton);
-		Scene scene = new Scene(borderPane, CANVAS_WIDTH + 2*BORDER, CANVAS_HEIGHT + 2*BORDER + 118/*height of uiControls*/);
+		Scene scene = new Scene(borderPane, CANVAS_WIDTH + 2*BORDER, CANVAS_HEIGHT + 2*BORDER + 101/*height of uiControls*/);
 		primaryStage.setScene(scene);
 		primaryStage.setTitle("Dungeon Generator");
 		primaryStage.show();
@@ -1378,7 +1368,10 @@ public class Smt_Dungeon extends Application
 				{
 					solver.interrupt();
 					
-				} catch(Z3Exception z) {}
+				} catch(Z3Exception z) {
+					
+					z.printStackTrace();
+				}
 			}
 			ctx.close();
 		});
@@ -1388,16 +1381,16 @@ public class Smt_Dungeon extends Application
 		{
 			if(event.getButton() == MouseButton.PRIMARY)
 			{
-				mousepoints.add(event.getX());
-				mousepoints.add(event.getY());
-				System.out.println("Added: " + event.getX() + ", " + event.getY());
-				controlLines.getPoints().add(event.getX());
-				controlLines.getPoints().add(event.getY());
+				if(runCount < 1)
+				{
+					mousepoints.add(event.getX());
+					mousepoints.add(event.getY());
+					System.out.println("Added: " + event.getX() + ", " + event.getY());
+					controlLines.getPoints().add(event.getX());
+					controlLines.getPoints().add(event.getY());
+				}
 			}
 		});
-		
-		System.out.println("Dungeon layout using SMT");
-		ctx = new Context();
 		
 		start.setOnAction(e ->
 		{
@@ -1415,7 +1408,7 @@ public class Smt_Dungeon extends Application
 			solverThread = new Thread(generateTask
 			(
 				runSpinner, roomSpinner, iterationSpinner,
-				pane, controlLines, stop, mousepoints
+				pane, controlLines, stop
 			));
 			solverThread.start();
 			
@@ -1432,7 +1425,10 @@ public class Smt_Dungeon extends Application
 			{
 				solver.interrupt();
 				
-			} catch(Z3Exception z) {}
+			} catch(Z3Exception z) {
+				
+				z.printStackTrace();
+			}
 			
 			// enable all controls and disable stop button
 			roomSpinner.setDisable(false);
@@ -1449,68 +1445,25 @@ public class Smt_Dungeon extends Application
 			stop.setDisable(true);
 		});
 		
-		/*
-		scene.setOnKeyTyped(event ->
-		{
-			// below are controls for using the program
-			switch(event.getCode())
-			{
-			// run the program if the user presses 'space'
-			case SPACE:
-				init_rooms(); // initialize dungeon rooms with their dimensions
-				ctx = new Context();
-				solver = ctx.mkSolver();
-//				initAllConstraints(solver, mousepoints); // add all constraints to the solver
-				runOnce = true;
-				break;
-				
-			case ESCAPE:
-				looper = false;
-				break;
-				
-			case L:
-				lineConstraints = !lineConstraints;
-				break;
-				
-			case EQUALS:
-				number_of_rooms += 1;
-				break;
-				
-			case MINUS:
-				number_of_rooms -= 1;
-				break;
-				
-			case D:
-				showDelaunay = !showDelaunay;
-				break;
-				
-			case S:
-				showSparse = !showSparse;
-				break;
-				
-			case U:
-//				saveMousepointData(mousepoints);
-				break;
-				
-			case I:
-//				mousepoints = loadMousepointData();
-				break;
-				
-//			case Z:
-//				break;
-				
-			default:
-				break;
-			}// end switch
-		});
-		*/
+		System.out.println("Dungeon layout using SMT");
+		ctx = new Context();
 		
 	}// end start
 	
+	/**
+	 * Generates a new task for the solverThread to execute.
+	 * @param runSpinner Specifies the number of runs to perform.
+	 * @param roomSpinner Specifies the number of rooms to generate.
+	 * @param iterationSpinner Specifies the number of iterations to perform.
+	 * @param pane The playfield.
+	 * @param controlLines Control lines.
+	 * @param stop Button for enabling controls after this task is finished.
+	 * @return Task that searches for a valid room layout given the configuration.
+	 */
 	private Task<Void> generateTask
 	(
 		Spinner<Integer> runSpinner, Spinner<Integer> roomSpinner, Spinner<Integer> iterationSpinner,
-		Pane pane, Polyline controlLines, Button stop, ArrayList<Double> mousepoints
+		Pane pane, Polyline controlLines, Button stop
 	){
 		return new Task<Void>() {
 			
@@ -1520,17 +1473,15 @@ public class Smt_Dungeon extends Application
 				// main starts here
 				initGridCounts(); // counts the number of grid cells within the play area
 				timingInfo = new HashMap<>();
-				accumulatedTimingInfo = new HashMap<>();
 				
 				runCount = runSpinner.getValue();
 				numberOfRooms = roomSpinner.getValue();
 				int unsatCount = 0; // number of times the solver could not find a solution
 				
 				// format: [[x1, y1], [x2, y2], ..., [xn, yn]]
-				// TODO may not need this data structure
+				// may not need this data structure
 				float[][] centerpoints;
 				DelaunayTriangulator tri;
-//				HashMap<String, Long> timingInfo = new HashMap<>();
 				
 				long begin;
 				long end;
@@ -1544,14 +1495,13 @@ public class Smt_Dungeon extends Application
 				while(runCount > 0)
 				{
 					initRooms();
-					displayRoomInfo(); // TODO not used for first run in original implementation
+					displayRoomInfo(); // not used for first run in original implementation
 					solver.reset();
 					initAllConstraints(solver, mousepoints);
 					loopCount = iterationSpinner.getValue();
 					
 					while(loopCount > 0)
 					{
-//						Thread.sleep(1);
 						Group group = new Group();
 						begin = System.currentTimeMillis();
 						s = solver.check();
@@ -1569,34 +1519,39 @@ public class Smt_Dungeon extends Application
 //						}
 						System.out.println("Total assertions: " + asrts.length);
 						timingInfo.put("solveTime", (end - begin) / 1000f);
+						
 						// if the solver found a satisfiable layout, display it to the user
 						if(s == Status.SATISFIABLE)
 						{
 							begin = System.currentTimeMillis();
 							centerpoints = computeRoomCenterpoints(solver.getModel());
-							tri = new DelaunayTriangulator(convertPointsToVectors(centerpoints));	// use center points of rooms to initialize Delaunay object
+							tri = new DelaunayTriangulator(convertPointsToVectors(centerpoints));
 							tri.triangulate();
 							end = System.currentTimeMillis();
 							timingInfo.put("delaunayTime", (end - begin) / 1000f);
-							begin = System.currentTimeMillis();
-							edges = new ArrayList<>();
 							
-							// TODO may not need this data structure
-							double[][] ar = createGraphArray(tri, centerpoints, edges);	// create matrix containing length of edges between nodes of Delaunay triangulation
+							begin = System.currentTimeMillis();
+							// create list containing length of edges between nodes in Delaunay triangulation
+							edges = createGraphArray(tri, centerpoints);
 							graph = new KruskalMST(rooms.size());
 							graph.Kruskal(edges.toArray(new Edge[edges.size()]));
-							tcsr = getMst(graph.getVertices());		// get the "compressed-sparse representation of the undirected minimum spanning tree"
+							
+							// get the "compressed-sparse representation of the undirected minimum spanning tree"
+							tcsr = getMst(graph.getVertices());
 							end = System.currentTimeMillis();
 							timingInfo.put("mstTime", (end - begin) / 1000f);
-							drawRooms(solver.getModel(), group, tri, tcsr, centerpoints, mousepoints);
+							
+							drawRooms(solver.getModel(), group, tri, tcsr, centerpoints);
 							updateGrid(solver.getModel());
 							loopCount--;
 							updateTiming();
+							
 							Platform.runLater(new Runnable()
 							{
 								@Override
 								public void run()
 								{
+									// Update the playfield
 									pane.getChildren().retainAll(controlLines);
 									pane.getChildren().add(group);
 								}
@@ -1608,7 +1563,7 @@ public class Smt_Dungeon extends Application
 							displayRoomInfo();
 							initRooms();
 							loopCount = NUM_LOOPS;
-							unsatCount++;	// TODO this number is never reset
+							unsatCount++; // this number is never reset
 							if(unsatCount > 10)
 							{
 								Platform.runLater(new Runnable()
@@ -1627,24 +1582,14 @@ public class Smt_Dungeon extends Application
 					}// end while
 					
 					runCount--;
-					//saveAccumulatedTiming();
+					
 					System.out.println("#######\nRun: " + runCount + "\n#######");
 					
 				}// end while
 				
 				makeHeatmap();
-				//finalDataAnalysis();
+				finalDataAnalysis();
 				resetAccumulatedTiming();
-				
-				Platform.runLater(new Runnable()
-				{
-					@Override
-					public void run()
-					{
-						controlLines.getPoints().clear();
-//						pane.getChildren().retainAll(controlLines);
-					}
-				});
 				
 				if(!stop.isDisabled())
 				{
@@ -1655,6 +1600,6 @@ public class Smt_Dungeon extends Application
 				
 			}// end call
 		};
-	}
+	}// end generateTask
 	
 }// end Smt_Dungeon
